@@ -1,3 +1,4 @@
+version: '3.8'
 
 services:
   zookeeper:
@@ -57,6 +58,7 @@ services:
     depends_on:
       - kafka
       - victoria-metrics
+      - gemma3-wrapper # Added dependency on the local LLM service
     networks:
       - log-streaming
   anomaly-detector:
@@ -69,6 +71,16 @@ services:
       - log-streaming
     environment:
       - GRAFANA_API_KEY=${GRAFANA_API_KEY}
+  gemma3-wrapper: # Wrapper service for the local LLM
+    build:
+      context: .
+      dockerfile: Dockerfile.gemma_wrapper
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - log-streaming
 
 networks:
   log-streaming:
