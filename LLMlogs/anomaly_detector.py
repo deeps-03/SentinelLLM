@@ -2,6 +2,8 @@ import os
 import time
 import requests
 import json
+from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -18,6 +20,20 @@ if not GRAFANA_API_KEY:
 PROMETHEUS_URL = "http://victoria-metrics:8428/api/v1/query"
 GRAFANA_URL = "http://grafana:3000"
 ALERT_API_ENDPOINT = f"{GRAFANA_URL}/api/annotations"
+KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'kafka:9093')
+ANOMALIES_TOPIC = os.getenv('ANOMALIES_TOPIC', 'anomalies')
+
+# Initialize Kafka producer
+producer = None
+try:
+    producer = KafkaProducer(
+        bootstrap_servers=[KAFKA_BROKER],
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    )
+    print("Kafka producer initialized successfully")
+except Exception as e:
+    print(f"Warning: Could not initialize Kafka producer: {e}")
+    print("Continuing with Grafana alerts only...")
 
 # Anomaly detection thresholds
 INCIDENT_THRESHOLD_MULTIPLIER = 2
@@ -58,8 +74,9 @@ def calculate_average(metric_data):
         return 0
     return sum(all_values) / len(all_values)
 
-# Sends an annotation to Grafana to mark an anomaly on dashboards.
-def send_grafana_alert(message):
+# Sends an annotation to Grafana to mark an anomaly on dashboards and publishes to Kafka.
+def send_grafana_alert(message, anomaly_type="general", score=1.0):
+    # Send to Grafana
     headers = {
         "Authorization": f"Bearer {GRAFANA_API_KEY}",
         "Content-Type": "application/json"
@@ -76,6 +93,22 @@ def send_grafana_alert(message):
         print(f"Grafana alert sent: {response.json()}")
     except requests.exceptions.RequestException as e:
         print(f"Error sending Grafana alert: {e}")
+    
+    # Send to Kafka anomalies topic
+    if producer:
+        try:
+            anomaly_data = {
+                "type": anomaly_type,
+                "score": score,
+                "details": message,
+                "timestamp": time.time() * 1000,
+                "source": "anomaly-detector"
+            }
+            producer.send(ANOMALIES_TOPIC, anomaly_data)
+            producer.flush()
+            print(f"Anomaly published to Kafka topic: {ANOMALIES_TOPIC}")
+        except Exception as e:
+            print(f"Error publishing anomaly to Kafka: {e}")
 
 def main():
     print("Starting Anomaly Detector...")
@@ -125,7 +158,13 @@ def main():
         if anomaly_detected:
             full_message = "Anomaly Detected! " + " | ".join(alert_message)
             print(f"!!! {full_message} !!!")
-            send_grafana_alert(full_message)
+            
+            # Calculate combined anomaly score
+            incident_score = current_incidents / max(historical_incidents_avg, 1) if historical_incidents_avg > 0 else 0
+            warning_score = current_warnings / max(historical_warnings_avg, 1) if historical_warnings_avg > 0 else 0
+            combined_score = max(incident_score, warning_score)
+            
+            send_grafana_alert(full_message, "log_volume_anomaly", combined_score)
         else:
             print("  No anomalies detected.")
 

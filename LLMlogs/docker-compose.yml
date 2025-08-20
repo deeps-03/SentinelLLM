@@ -9,6 +9,7 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     networks:
       - log-streaming
+      
   kafka:
     image: wurstmeister/kafka:2.13-2.8.1
     ports:
@@ -19,11 +20,12 @@ services:
       KAFKA_LISTENERS: INSIDE://0.0.0.0:9093,OUTSIDE://0.0.0.0:9092
       KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_CREATE_TOPICS: "logs:1:1"
+      KAFKA_CREATE_TOPICS: "logs:1:1,raw-logs:1:1,classified-logs:1:1,anomalies:1:1"
     depends_on:
       - zookeeper
     networks:
       - log-streaming
+      
   victoria-metrics:
     image: victoriametrics/victoria-metrics:latest
     ports:
@@ -32,6 +34,7 @@ services:
       - victoria-metrics-data:/victoria-metrics-data
     networks:
       - log-streaming
+      
   grafana:
     image: grafana/grafana:latest
     ports:
@@ -42,6 +45,7 @@ services:
       - victoria-metrics
     networks:
       - log-streaming
+      
   log-producer:
     build:
       context: .
@@ -50,6 +54,9 @@ services:
       - kafka
     networks:
       - log-streaming
+    environment:
+      - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
+      
   log-consumer:
     build:
       context: .
@@ -59,6 +66,12 @@ services:
       - victoria-metrics
     networks:
       - log-streaming
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
+      - RAW_LOGS_TOPIC=${RAW_LOGS_TOPIC:-raw-logs}
+      - CLASSIFIED_LOGS_TOPIC=${CLASSIFIED_LOGS_TOPIC:-classified-logs}
+      
   anomaly-detector:
     build:
       context: .
@@ -69,6 +82,80 @@ services:
       - log-streaming
     environment:
       - GRAFANA_API_KEY=${GRAFANA_API_KEY}
+      - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
+      - ANOMALIES_TOPIC=${ANOMALIES_TOPIC:-anomalies}
+      
+  aws-log-poller:
+    build:
+      context: .
+      dockerfile: Dockerfile.aws_log_poller
+    depends_on:
+      - kafka
+    networks:
+      - log-streaming
+    volumes:
+      - aws-checkpoints:/app/checkpoints
+    environment:
+      - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
+      - RAW_LOGS_TOPIC=${RAW_LOGS_TOPIC:-raw-logs}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_LOG_GROUPS=${AWS_LOG_GROUPS}
+      - AWS_POLL_INTERVAL_SECONDS=${AWS_POLL_INTERVAL_SECONDS:-30}
+      - MAX_RETRIES=${MAX_RETRIES:-5}
+      - RETRY_DELAY_SECONDS=${RETRY_DELAY_SECONDS:-5}
+    profiles:
+      - aws
+      
+  azure-log-poller:
+    build:
+      context: .
+      dockerfile: Dockerfile.azure_log_poller
+    depends_on:
+      - kafka
+    networks:
+      - log-streaming
+    volumes:
+      - azure-checkpoints:/app/checkpoints
+    environment:
+      - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
+      - RAW_LOGS_TOPIC=${RAW_LOGS_TOPIC:-raw-logs}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID}
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
+      - AZURE_WORKSPACE_ID=${AZURE_WORKSPACE_ID}
+      - AZURE_QUERY=${AZURE_QUERY:-union * | where TimeGenerated > ago(1h) | order by TimeGenerated desc | limit 100}
+      - AZURE_POLL_INTERVAL_SECONDS=${AZURE_POLL_INTERVAL_SECONDS:-60}
+      - MAX_RETRIES=${MAX_RETRIES:-5}
+      - RETRY_DELAY_SECONDS=${RETRY_DELAY_SECONDS:-5}
+    profiles:
+      - azure
+      
+  notifier:
+    build:
+      context: .
+      dockerfile: Dockerfile.notifier
+    depends_on:
+      - kafka
+    networks:
+      - log-streaming
+    environment:
+      - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
+      - CLASSIFIED_LOGS_TOPIC=${CLASSIFIED_LOGS_TOPIC:-classified-logs}
+      - ANOMALIES_TOPIC=${ANOMALIES_TOPIC:-anomalies}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+      - EMAIL_FROM=${EMAIL_FROM}
+      - EMAIL_RECIPIENTS=${EMAIL_RECIPIENTS}
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
+      - ANOMALY_THRESHOLD=${ANOMALY_THRESHOLD:-0.8}
+      - DEDUP_WINDOW_MINUTES=${DEDUP_WINDOW_MINUTES:-15}
+      - SEND_PREVENTIVE_EMAILS=${SEND_PREVENTIVE_EMAILS:-false}
+      - GRAFANA_BASE_URL=${GRAFANA_BASE_URL:-http://localhost:3000}
 
 networks:
   log-streaming:
@@ -77,3 +164,5 @@ networks:
 volumes:
   victoria-metrics-data:
   grafana-data:
+  aws-checkpoints:
+  azure-checkpoints:

@@ -1,0 +1,140 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "SentinelLLM - Log Analysis Dashboard",
+    "tags": ["sentinellm", "logs", "ai", "anomaly"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Log Classification Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "log_incident_total",
+            "legendFormat": "Incidents"
+          },
+          {
+            "expr": "log_warning_total", 
+            "legendFormat": "Warnings"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "red", "value": 50}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Log Classification Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(log_incident_total[5m])",
+            "legendFormat": "Incident Rate"
+          },
+          {
+            "expr": "rate(log_warning_total[5m])",
+            "legendFormat": "Warning Rate"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Log Volume by Source",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (source) (rate(logs_processed_total[5m]))",
+            "legendFormat": "{{source}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Anomaly Scores",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "anomaly_score",
+            "legendFormat": "Anomaly Score"
+          }
+        ],
+        "yAxes": [
+          {
+            "min": 0,
+            "max": 5
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "query": {
+                "queryType": "",
+                "refId": "A"
+              },
+              "reducer": {
+                "type": "last",
+                "params": []
+              },
+              "evaluator": {
+                "params": [2.0],
+                "type": "gt"
+              }
+            }
+          ],
+          "executionErrorState": "alerting",
+          "noDataState": "no_data",
+          "frequency": "10s",
+          "handler": 1,
+          "name": "High Anomaly Score Alert",
+          "message": "Anomaly score is above threshold"
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "Service Health",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "up",
+            "legendFormat": "{{job}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Recent Incidents",
+        "type": "logs",
+        "targets": [
+          {
+            "expr": "{classification=\"incident\"}",
+            "legendFormat": ""
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s"
+  }
+}

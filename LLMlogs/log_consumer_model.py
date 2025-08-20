@@ -2,7 +2,7 @@ import os
 import json
 import time
 import requests
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import NoBrokersAvailable
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -13,6 +13,8 @@ load_dotenv()
 # --- Configuration ---
 KAFKA_BROKER = 'kafka:9093'
 KAFKA_TOPIC = 'logs'
+KAFKA_RAW_LOGS_TOPIC = os.getenv('RAW_LOGS_TOPIC', 'raw-logs')
+KAFKA_CLASSIFIED_LOGS_TOPIC = os.getenv('CLASSIFIED_LOGS_TOPIC', 'classified-logs')
 VICTORIAMETRICS_URL = 'http://victoria-metrics:8428/api/v1/import/prometheus'
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MAX_RETRIES = 10
@@ -34,16 +36,25 @@ except Exception as e:
 
 # --- Kafka Connection ---
 consumer = None
+producer = None
+
 for i in range(MAX_RETRIES):
     try:
         consumer = KafkaConsumer(
             KAFKA_TOPIC,
+            KAFKA_RAW_LOGS_TOPIC,  # Also consume from raw-logs topic
             bootstrap_servers=[KAFKA_BROKER],
             auto_offset_reset='earliest',
             enable_auto_commit=True,
             group_id='log-classifier-group',
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))
         )
+        
+        producer = KafkaProducer(
+            bootstrap_servers=[KAFKA_BROKER],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        )
+        
         print(f"Successfully connected to Kafka after {i+1} attempts.")
         break
     except NoBrokersAvailable:
@@ -53,7 +64,7 @@ for i in range(MAX_RETRIES):
         print(f"An unexpected error occurred during Kafka connection: {e}")
         break
 
-if consumer is None:
+if consumer is None or producer is None:
     print("Failed to connect to Kafka after multiple retries. Exiting.")
     exit(1)
 
@@ -109,7 +120,7 @@ def classify_log_with_gemini(log_message):
 
 # --- Main Loop ---
 if __name__ == "__main__":
-    print(f"Starting log consumer for topic: {KAFKA_TOPIC}")
+    print(f"Starting log consumer for topics: {KAFKA_TOPIC}, {KAFKA_RAW_LOGS_TOPIC}")
     last_metric_push_time = time.time()
 
     try:
@@ -119,6 +130,17 @@ if __name__ == "__main__":
 
             prediction = classify_log_with_gemini(log_message)
             print(f"Consumed: {{'message': '{log_message[:100]}...'}} -> Classified as: {prediction}")
+
+            # Create classified log entry
+            classified_log = {
+                **log_entry,  # Include original log data
+                'classification': prediction,
+                'classified_timestamp': time.time(),
+                'source_topic': message.topic
+            }
+            
+            # Send classified log to classified-logs topic
+            producer.send(KAFKA_CLASSIFIED_LOGS_TOPIC, classified_log)
 
             if prediction == "incident":
                 incident_total += 1
@@ -140,6 +162,9 @@ if __name__ == "__main__":
     finally:
         if consumer:
             consumer.close()
+        if producer:
+            producer.flush()
+            producer.close()
         # Push final metrics before exiting
         push_metrics_to_victoria_metrics()
         print("Log consumer shut down.")
