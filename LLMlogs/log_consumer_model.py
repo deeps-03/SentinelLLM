@@ -4,21 +4,23 @@ import json  # For parsing Kafka messages (JSON format)
 import time  # For delays, retries, and metric intervals
 import requests  # For sending HTTP requests (VictoriaMetrics + Local model API)
 from collections import OrderedDict
+from kafka import KafkaConsumer, KafkaProducer  # Kafka client for consuming messages
+from kafka.errors import NoBrokersAvailable  # Error handling when Kafka broker unavailable
+import google.generativeai as genai  # Google Gemini API client
+from dotenv import load_dotenv  # Load environment variables from .env file
 
 # --- Caching Configuration ---
 log_cache = OrderedDict()
 CACHE_SIZE = 100
-from kafka import KafkaConsumer  # Kafka client for consuming messages
-from kafka.errors import NoBrokersAvailable  # Error handling when Kafka broker unavailable
-import google.generativeai as genai  # Google Gemini API client
-from dotenv import load_dotenv  # Load environment variables from .env file
 
 # --- Load environment variables from .env file ---
 load_dotenv()
 
 # --- Configuration ---
-KAFKA_BROKER = 'kafka:9093'  # Kafka broker host:port
+KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'kafka:9093')  # Kafka broker host:port
 KAFKA_TOPIC = 'logs'  # Kafka topic to consume logs from
+KAFKA_RAW_LOGS_TOPIC = os.getenv('RAW_LOGS_TOPIC', 'raw-logs')
+KAFKA_CLASSIFIED_LOGS_TOPIC = os.getenv('CLASSIFIED_LOGS_TOPIC', 'classified-logs')
 VICTORIAMETRICS_URL = 'http://victoria-metrics:8428/api/v1/import/prometheus'  # VictoriaMetrics endpoint
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Gemini API key from environment
 OLLAMA_API_URL = "http://ollama:11434/api/generate"  # Ollama API endpoint
@@ -42,16 +44,25 @@ except Exception as e:
 
 # --- Kafka Connection ---
 consumer = None
+producer = None
+
 for i in range(MAX_RETRIES):
     try:
         consumer = KafkaConsumer(
             KAFKA_TOPIC,  # Kafka topic
+            KAFKA_RAW_LOGS_TOPIC,  # Also consume from raw-logs topic
             bootstrap_servers=[KAFKA_BROKER],  # Kafka broker address
             auto_offset_reset='earliest',  # Start from earliest messages if no offset
             enable_auto_commit=True,  # Automatically commit offsets
             group_id='log-classifier-group',  # Consumer group name
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))  # Deserialize JSON
         )
+        
+        producer = KafkaProducer(
+            bootstrap_servers=[KAFKA_BROKER],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        )
+        
         print(f"Successfully connected to Kafka after {i+1} attempts.")
         break
     except NoBrokersAvailable:
@@ -61,7 +72,7 @@ for i in range(MAX_RETRIES):
         print(f"An unexpected error occurred during Kafka connection: {e}")
         break
 
-if consumer is None:
+if consumer is None or producer is None:
     print("Failed to connect to Kafka after multiple retries. Exiting.")
     exit(1)
 
@@ -188,7 +199,7 @@ def classify_log_with_local_model(log_message, api_url):
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    print(f"Starting log consumer for topic: {KAFKA_TOPIC}")
+    print(f"Starting log consumer for topics: {KAFKA_TOPIC}, {KAFKA_RAW_LOGS_TOPIC}")
     last_metric_push_time = time.time()
 
     try:
@@ -205,6 +216,17 @@ if __name__ == "__main__":
                 final_prediction = classify_log_with_gemini(log_message)
                 confidence = 0
 
+            # Create classified log entry
+            classified_log = {
+                **log_entry,  # Include original log data
+                'classification': final_prediction,
+                'classified_timestamp': time.time(),
+                'source_topic': message.topic
+            }
+            
+            # Send classified log to classified-logs topic
+            producer.send(KAFKA_CLASSIFIED_LOGS_TOPIC, classified_log)
+
             # Step 3: If all models fail, mark as unknown
             if final_prediction is None:
                 print("All models failed. Marking as 'unknown'.")
@@ -213,13 +235,13 @@ if __name__ == "__main__":
             # Print result
             print(f"Consumed: {{'message': '{log_message[:100]}...'}} -> Classified as: {final_prediction} (Confidence: {confidence})\n")
 
-            # Step 5: Update counters
+            # Step 4: Update counters
             if final_prediction == "incident":
                 incident_total += 1
             elif final_prediction == "preventive_action":
                 warning_total += 1
 
-            # Step 6: Push metrics periodically
+            # Step 5: Push metrics periodically
             current_time = time.time()
             if current_time - last_metric_push_time >= METRIC_PUSH_INTERVAL_SEC:
                 push_metrics_to_victoria_metrics()
@@ -234,7 +256,9 @@ if __name__ == "__main__":
     finally:
         if consumer:
             consumer.close()
+        if producer:
+            producer.flush()
+            producer.close()
+        # Push final metrics before exiting
         push_metrics_to_victoria_metrics()
         print("Log consumer shut down.")
-
-# --- End of Script ---
