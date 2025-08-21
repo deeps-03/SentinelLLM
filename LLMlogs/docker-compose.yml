@@ -47,6 +47,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.producer
+    command: python log_producer.py
+    environment:
+      - PYTHONUNBUFFERED=1
     depends_on:
       - kafka
     networks:
@@ -55,10 +58,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.consumer
+    restart: on-failure
     depends_on:
-      - kafka
-      - victoria-metrics
-      - gemma3-wrapper # Added dependency on the local LLM service
+      kafka:
+        condition: service_started
+      victoria-metrics:
+        condition: service_started
+      ollama:
+        condition: service_started
     networks:
       - log-streaming
   anomaly-detector:
@@ -71,14 +78,13 @@ services:
       - log-streaming
     environment:
       - GRAFANA_API_KEY=${GRAFANA_API_KEY}
-  gemma3-wrapper: # Wrapper service for the local LLM
-    build:
-      context: .
-      dockerfile: Dockerfile.gemma_wrapper
+  ollama:
+    image: ollama/ollama
     ports:
-      - "8000:8000"
+      - "11434:11434"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ollama-data:/root/.ollama
+    command: ["serve"]
     networks:
       - log-streaming
 
@@ -89,3 +95,4 @@ networks:
 volumes:
   victoria-metrics-data:
   grafana-data:
+  ollama-data:

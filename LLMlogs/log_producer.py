@@ -3,7 +3,7 @@ import json
 import time
 import random
 
-KAFKA_BROKER = 'kafka:9093'  # Internal Kafka address within Docker network
+KAFKA_BROKER = 'kafka:9093'
 KAFKA_TOPIC = 'logs'
 
 from kafka.errors import NoBrokersAvailable
@@ -60,9 +60,7 @@ def generate_log():
         ]
     }
     
-    # Choose a log type with a weighted probability to simulate a more realistic log distribution.
-    # INFO logs are most common, while DEBUG logs are the least common.
-    log_type = random.choices(log_types, weights=[0.5, 0.25, 0.2, 0.05], k=1)[0]
+    log_type = random.choices(log_types, weights=[0.4, 0.4, 0.15, 0.05], k=1)[0]
     message = random.choice(messages[log_type])
     
     log_entry = {
@@ -77,12 +75,11 @@ if __name__ == "__main__":
     print(f"Starting log producer for topic: {KAFKA_TOPIC}")
     print(f"Connecting to Kafka broker: {KAFKA_BROKER}")
     try:
-        # Continuously generate logs and send them to Kafka every 2 seconds.
         while True:
             log = generate_log()
             producer.send(KAFKA_TOPIC, log)
             print(f"Produced: {log}")
-            time.sleep(2)
+            time.sleep(30)
     except KeyboardInterrupt:
         print("\nProducer stopped by user.")
     finally:
