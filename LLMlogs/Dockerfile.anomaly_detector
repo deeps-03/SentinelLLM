@@ -1,9 +1,18 @@
 FROM python:3.9-slim
 
-# Install system dependencies
+# Install system dependencies and Rust
 RUN apt-get update && apt-get install -y \
+    g++ \
     gcc \
-    && rm -rf /var/lib/apt/lists/*
+    cmake \
+    build-essential \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y
+
+# Add Rust to the PATH
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 

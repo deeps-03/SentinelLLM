@@ -1,12 +1,12 @@
 # SentinelLLM 🚀
 
 ## Project Description 📝
-This project provides a complete, production-ready **real-time log analysis and streaming platform** that leverages a robust stack of Dockerized services. It features AI-powered log classification using the **Google Gemini API**, cloud log ingestion from **AWS CloudWatch** and **Azure Monitor**, and comprehensive alerting via **Email** and **Microsoft Teams**.
+This project provides a complete, production-ready **real-time log analysis and streaming platform** that leverages a robust stack of Dockerized services. It features AI-powered log classification using a local LLM, cloud log ingestion from **AWS CloudWatch** and **Azure Monitor**, and comprehensive alerting via **Email** and **Microsoft Teams**.
 
 ## Key Features ✨
 
 ### Core Features
-*   **AI-Powered Log Classification:** Uses the **Google Gemini API** (`gemini-1.5-flash`) to intelligently classify logs into `incident` 🚨, `preventive_action` 🛠️, or `normal`.
+*   **AI-Powered Log Classification:** Uses a local `Qwen/Qwen2-1.5B-Instruct` model to intelligently classify logs into `incident` 🚨, `preventive_action` 🛠️, or `normal`.
 *   **Real-time Streaming:** Kafka-based log streaming architecture for high-throughput processing.
 *   **Anomaly Detection:** Automatic detection of unusual log patterns with configurable thresholds.
 *   **Metrics Collection:** Classified log counts and anomalies pushed to VictoriaMetrics for time-series storage.
@@ -34,9 +34,9 @@ This project provides a complete, production-ready **real-time log analysis and 
 *   **Comprehensive Logging:** Structured logging throughout all services.
 
 ## Technologies Used 🛠️
-*   **AI Model:** Google Gemini API (`gemini-1.5-flash`)
+*   **AI Model:** Qwen/Qwen2-1.5B-Instruct (via LlamaCpp)
 *   **Python Libraries:** 
-    *   `google-generativeai` - AI classification
+    *   `langchain`, `langchain-community`, `llama-cpp-python` - AI classification
     *   `kafka-python` - Streaming
     *   `boto3` - AWS integration
     *   `azure-monitor-query`, `azure-identity` - Azure integration
@@ -68,7 +68,8 @@ This project provides a complete, production-ready **real-time log analysis and 
                          │                                          │
                    ┌─────▼──────┐                                   │
                    │Log Consumer│                                   │
-                   │+ Gemini AI │                                   │
+                   │+ XGBoost   │                                   │
+                   │+ Qwen LLM  │                                   │
                    └─────┬──────┘                                   │
                          │                                          │
               ┌──────────┼───────────┐                             │
@@ -104,70 +105,45 @@ This project provides a complete, production-ready **real-time log analysis and 
          └────────┘ └─────────┘└────────┘
 ```
 
-## How the LLM is Used
+## Pipeline Explanation 🌊
 
-The core intelligence of this project comes from the integration with the Gemini API in the `log_consumer_model.py` script.
+This project processes logs through a series of interconnected services, ensuring real-time analysis, classification, anomaly detection, and notification. Here's a step-by-step breakdown of the data flow:
 
-1.  **Model:** We use the `gemini-1.5-flash` model, which provides a great balance of speed and reasoning capabilities for this classification task.
+1.  **Log Ingestion:**
+    *   Logs originate from various sources: **AWS CloudWatch**, **Azure Monitor**, or a **Local Producer** (for testing and local development).
+    *   Dedicated pollers (AWS Log Poller, Azure Log Poller) continuously fetch logs from their respective cloud platforms.
+    *   The Local Producer generates synthetic log data.
+    *   All ingested logs are standardized into a common schema and published to the **`raw-logs` Kafka topic**.
 
-2.  **Prompting:** For each log message consumed from Kafka, the service sends a specifically crafted prompt to the Gemini API. The prompt instructs the model to act as an analysis engine and classify the log into one of three categories:
-    *   `incident`: For critical errors or failures requiring immediate attention.
-    *   `preventive_action`: For warnings or potential future issues that should be investigated.
-    *   `normal`: For routine, informational messages.
+2.  **Log Consumption and Classification:**
+    *   The **Log Consumer** service subscribes to the `raw-logs` Kafka topic.
+    *   Upon receiving a log entry, the Log Consumer first uses a pre-trained **XGBoost model** (along with a TF-IDF vectorizer and Label Encoder) to classify the log into one of three categories: `incident`, `preventive_action`, or `normal`.
+    *   If the log is classified as `preventive_action` (or `warning`), the Log Consumer then invokes the **Qwen/Qwen2-1.5B-Instruct LLM**.
+    *   The LLM analyzes the log message and generates actionable suggestions on how to address the potential issue.
+    *   The original log entry, along with its classification and any generated suggestions, is then published to the **`classified-logs` Kafka topic**.
 
-3.  **Rate Limiting:** To handle the API's free tier quota (15 requests per minute), the consumer script has a hardcoded `time.sleep(5)` delay in its main loop. This ensures we stay within the per-minute limit.
+3.  **Anomaly Detection:**
+    *   The **Anomaly Detector** service also subscribes to the `classified-logs` Kafka topic.
+    *   It continuously monitors the stream of classified logs for unusual patterns or deviations from normal behavior (e.g., a sudden spike in `incident` logs).
+    *   When an anomaly is detected, an anomaly event (including a score and details) is published to the **`anomalies` Kafka topic**.
 
-4.  **Output Processing:** Classified logs are published to the `classified-logs` Kafka topic for consumption by the notifier service.
+4.  **Metrics Collection:**
+    *   Both the Log Consumer and Anomaly Detector push relevant metrics (e.g., counts of classified logs, anomaly scores) to **VictoriaMetrics**, a high-performance time-series database.
 
-## Data Flow & Topics
+5.  **Alerting and Notifications:**
+    *   The **Notifier Service** subscribes to both the `classified-logs` and `anomalies` Kafka topics.
+    *   It applies smart alerting rules based on the classification (e.g., `incident` logs trigger critical alerts) and anomaly scores.
+    *   Alerts are deduplicated to prevent spam.
+    *   Notifications are sent out via configured channels: **Email** (SMTP) and **Microsoft Teams** webhooks.
 
-### Kafka Topics
-- **`raw-logs`**: Structured logs from AWS CloudWatch, Azure Monitor, and local producers
-- **`classified-logs`**: Logs after AI classification by Gemini
-- **`anomalies`**: Anomaly detection results with scores and details
-
-### Schema Examples
-
-**Raw Log Entry:**
-```json
-{
-  "source": "aws-cloudwatch|azure-monitor|local",
-  "host": "server-name-or-resource-id",
-  "timestamp": 1640995200000,
-  "level": "ERROR|WARNING|INFO|DEBUG",
-  "message": "Actual log message content",
-  "service": "service-name",
-  "log_group": "log-group-name",
-  "raw_data": {...}
-}
-```
-
-**Classified Log Entry:**
-```json
-{
-  ...raw_log_fields,
-  "classification": "incident|preventive_action|normal",
-  "classified_timestamp": 1640995200000,
-  "source_topic": "raw-logs"
-}
-```
-
-**Anomaly Entry:**
-```json
-{
-  "type": "log_volume_anomaly",
-  "score": 2.5,
-  "details": "High Incident Anomaly: Current incidents (25) > 2x historical average (10.5)",
-  "timestamp": 1640995200000,
-  "source": "anomaly-detector"
-}
-```
+6.  **Real-time Visualization:**
+    *   **Grafana** is used to visualize the metrics stored in VictoriaMetrics.
+    *   Dashboards provide real-time insights into log classifications, anomaly trends, and overall system health.
 
 ## Getting Started 🚀
 
 ### Prerequisites
 - Docker and Docker Compose installed
-- Google AI API key (required)
 - AWS credentials (optional, for CloudWatch integration)
 - Azure credentials (optional, for Monitor integration)
 - SMTP credentials (optional, for email notifications)
@@ -178,26 +154,51 @@ The core intelligence of this project comes from the integration with the Gemini
 1.  **Clone the repository:**
     ```bash
     git clone <your-repository-url>
-    cd SentinelLLM/LLMlogs
     ```
 
-2.  **Create Environment File:**
+2.  **Navigate to the LLMlogs directory:**
+    ```bash
+    cd SentinelLLM/LLMlogs
+    ```
+    *(All subsequent commands in this section should be run from within the `SentinelLLM/LLMlogs` directory unless otherwise specified.)*
+
+3.  **Create Environment File:**
     ```bash
     cp .env.example .env
     ```
 
-3.  **Configure Required Settings:**
-    Edit the `.env` file and set at minimum:
-    ```env
-    GEMINI_API_KEY=your-google-ai-api-key-here
-    ```
+4.  **Train the ML Models (XGBoost, TF-IDF Vectorizer, Label Encoder):**
+    These models are used for the initial classification of log messages into `incident`, `preventive_action`, or `normal`.
 
-4.  **Start Core Services:**
+    a. **Create and activate a Python virtual environment:**
     ```bash
-    docker-compose up -d --build
+    python3 -m venv .venv
+    source .venv/bin/activate
     ```
 
-5.  **Access Services:**
+    b. **Install Python dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+    c. **Run the training script:**
+    ```bash
+    python model_train.py
+    ```
+    This script will generate `xgboost_model.pkl`, `vectorizer.pkl`, and `label_encoder.pkl` in the current directory.
+
+    d. **Deactivate the virtual environment:**
+    ```bash
+    deactivate
+    ```
+
+5.  **Build and Start Core Services:**
+    ```bash
+    docker-compose build --no-cache
+    docker-compose up -d
+    ```
+
+6.  **Access Services:**
     - Grafana: http://localhost:3000 (admin/admin)
     - VictoriaMetrics: http://localhost:8428
 
@@ -279,7 +280,6 @@ docker-compose --profile aws --profile azure up -d --build
 **Production Configuration:**
 ```env
 # Core
-GEMINI_API_KEY=your-api-key
 GRAFANA_API_KEY=your-grafana-key
 
 # AWS
@@ -294,7 +294,7 @@ AZURE_TENANT_ID=...
 AZURE_CLIENT_ID=...
 AZURE_CLIENT_SECRET=...
 AZURE_WORKSPACE_ID=...
-AZURE_QUERY=AppTraces | where TimeGenerated > ago(30m) and SeverityLevel >= 2 | order by TimeGenerated desc | limit 200
+AZURE_QUERY=union * | where TimeGenerated > ago(30m) and SeverityLevel >= 2 | order by TimeGenerated desc | limit 200
 
 # Notifications
 SMTP_HOST=smtp.office365.com
@@ -361,10 +361,6 @@ Ensure IAM user/role has:
 Ensure service principal has:
 - `Log Analytics Reader` role on workspace
 
-**API Rate Limits:**
-- Gemini API: 15 requests/minute (free tier)
-- Adjust sleep intervals if needed
-
 ### Log Analysis
 ```bash
 # Check classification results
@@ -377,18 +373,35 @@ docker-compose logs anomaly-detector | grep "Anomaly"
 docker-compose logs notifier
 ```
 
-## Project Status & API Limits ⚠️
+## Commands Used
+
+Here are the commands we used to make the changes:
+
+```bash
+# Navigate to the LLMlogs directory
+cd LLMlogs
+
+# Check the services in the docker-compose file
+docker-compose config --services
+
+# Build the docker images (use --no-cache to ensure a fresh build)
+docker-compose build --no-cache
+
+# Run the services in detached mode
+docker-compose up -d
+
+# Check the logs of the log-consumer service
+docker-compose logs log-consumer
+
+# To stop the services
+docker-compose down
+```
+
+## Project Status ⚠️
 
 This project is a **production-ready platform** with the following considerations:
 
-### API Limitations
-- **Google Gemini API (Free Tier):** 15 requests per minute, 50 per day
-- **AWS CloudWatch:** Standard AWS API rate limits apply
-- **Azure Monitor:** Standard Azure API rate limits apply
-
 ### Performance Considerations
-- The log consumer includes rate limiting to respect Gemini API quotas
-- For high-volume environments, consider upgrading to Gemini API paid tiers
 - Checkpoint management ensures no log duplication after service restarts
 - All services include retry mechanisms and graceful error handling
 
@@ -401,4 +414,4 @@ This project is a **production-ready platform** with the following consideration
 
 ## License 📄
 
-This project is provided as-is for educational and production use. Please ensure you comply with the terms of service for all integrated APIs (Google Gemini, AWS, Azure, etc.).
+This project is provided as-is for educational and production use. Please ensure you comply with the terms of service for all integrated APIs (AWS, Azure, etc.).

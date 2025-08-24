@@ -1,13 +1,17 @@
-# --- Imports ---
-import os  # For accessing environment variables
-import json  # For parsing Kafka messages (JSON format)
-import time  # For delays, retries, and metric intervals
-import requests  # For sending HTTP requests (VictoriaMetrics + Local model API)
+import os
+import json
+import time
+import pickle
+import requests
+import traceback
 from collections import OrderedDict
-from kafka import KafkaConsumer, KafkaProducer  # Kafka client for consuming messages
-from kafka.errors import NoBrokersAvailable  # Error handling when Kafka broker unavailable
-import google.generativeai as genai  # Google Gemini API client
-from dotenv import load_dotenv  # Load environment variables from .env file
+from kafka import KafkaConsumer, KafkaProducer
+from kafka.errors import NoBrokersAvailable
+from dotenv import load_dotenv
+from langchain_community.llms import LlamaCpp
+import xgboost as xgb
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import LabelEncoder
 
 # --- Caching Configuration ---
 log_cache = OrderedDict()
@@ -17,30 +21,48 @@ CACHE_SIZE = 100
 load_dotenv()
 
 # --- Configuration ---
-KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'kafka:9093')  # Kafka broker host:port
-KAFKA_TOPIC = 'logs'  # Kafka topic to consume logs from
+KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'kafka:9093')
+KAFKA_TOPIC = 'logs'
 KAFKA_RAW_LOGS_TOPIC = os.getenv('RAW_LOGS_TOPIC', 'raw-logs')
 KAFKA_CLASSIFIED_LOGS_TOPIC = os.getenv('CLASSIFIED_LOGS_TOPIC', 'classified-logs')
-VICTORIAMETRICS_URL = 'http://victoria-metrics:8428/api/v1/import/prometheus'  # VictoriaMetrics endpoint
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Gemini API key from environment
-OLLAMA_API_URL = "http://ollama:11434/api/generate"  # Ollama API endpoint
+VICTORIAMETRICS_URL = 'http://victoria-metrics:8428/api/v1/import/prometheus'
 
-MAX_RETRIES = 10  # Max retries for Kafka connection
-RETRY_DELAY_SEC = 5  # Retry delay (seconds)
-METRIC_PUSH_INTERVAL_SEC = 10  # Interval for pushing metrics to VictoriaMetrics
+MAX_RETRIES = 20
+RETRY_DELAY_SEC = 10
+METRIC_PUSH_INTERVAL_SEC = 10
 
-# --- Gemini AI Setup ---
-if not GEMINI_API_KEY:
-    print("Error: GEMINI_API_KEY not found. Make sure it's set in the .env file.")
+# --- Load XGBoost Model ---
+try:
+    with open('vectorizer.pkl', 'rb') as f:
+        vectorizer = pickle.load(f)
+    with open('label_encoder.pkl', 'rb') as f:
+        label_encoder = pickle.load(f)
+    with open('xgboost_model.pkl', 'rb') as f:
+        xgb_model = pickle.load(f)
+    print("XGBoost model, vectorizer, and label encoder loaded successfully.")
+except FileNotFoundError:
+    print("Error: xgboost_model.pkl not found. Make sure to train the model first.")
+    exit(1)
+except Exception as e:
+    print(f"Error loading XGBoost model: {e}")
     exit(1)
 
+# --- Qwen AI (LlamaCpp) Model Setup ---
+llm_model = None
+model_path = "./qwen-model.gguf"
+
 try:
-    genai.configure(api_key=GEMINI_API_KEY)  # Configure Gemini with API key
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')  # Load Gemini model
-    print("Gemini Pro model initialized successfully.")
+    llm_model = LlamaCpp(
+        model_path=model_path,
+        n_ctx=2048,
+        n_gpu_layers=0,
+        n_batch=512,
+        verbose=False,
+    )
+    print(f"LlamaCpp model '{model_path}' initialized successfully.")
 except Exception as e:
-    print(f"Error initializing Gemini Pro model: {e}")
-    gemini_model = None  # Fallback if initialization fails
+    print(f"Error initializing LlamaCpp model '{model_path}': {e}")
+    llm_model = None
 
 # --- Kafka Connection ---
 consumer = None
@@ -49,13 +71,13 @@ producer = None
 for i in range(MAX_RETRIES):
     try:
         consumer = KafkaConsumer(
-            KAFKA_TOPIC,  # Kafka topic
-            KAFKA_RAW_LOGS_TOPIC,  # Also consume from raw-logs topic
-            bootstrap_servers=[KAFKA_BROKER],  # Kafka broker address
-            auto_offset_reset='earliest',  # Start from earliest messages if no offset
-            enable_auto_commit=True,  # Automatically commit offsets
-            group_id='log-classifier-group',  # Consumer group name
-            value_deserializer=lambda x: json.loads(x.decode('utf-8'))  # Deserialize JSON
+            KAFKA_TOPIC,
+            KAFKA_RAW_LOGS_TOPIC,
+            bootstrap_servers=[KAFKA_BROKER],
+            auto_offset_reset='earliest',
+            enable_auto_commit=True,
+            group_id='log-classifier-group',
+            value_deserializer=lambda x: json.loads(x.decode('utf-8'))
         )
         
         producer = KafkaProducer(
@@ -77,13 +99,11 @@ if consumer is None or producer is None:
     exit(1)
 
 # --- Metrics & Classification counters ---
-incident_total = 0  # Count of incident logs
-warning_total = 0  # Count of preventive_action logs
-
+incident_total = 0
+warning_total = 0
 
 # --- Function to push metrics to VictoriaMetrics ---
 def push_metrics_to_victoria_metrics():
-    """Pushes the current log classification counts to VictoriaMetrics."""
     global incident_total, warning_total
 
     metrics = [
@@ -100,102 +120,33 @@ def push_metrics_to_victoria_metrics():
     except requests.exceptions.RequestException as e:
         print(f"Error pushing metrics to VictoriaMetrics: {e}")
 
-
-# --- Function to classify logs using Gemini ---
-def classify_log_with_gemini(log_message):
-    """Classifies a log message using the Gemini Pro API. Returns the classification (str) or None if an error occurs."""
-    if not gemini_model:
-        print("Error: Gemini model not available.")
+# --- Function to get suggestions from Qwen ---
+def get_warning_suggestions(log_message):
+    if not llm_model:
+        print("Error: Qwen model not available.")
         return None
 
     if not log_message:
-        return "unknown"
-
-    try:
-        prompt = f"""
-        Analyze the following log entry and classify it into one of three categories: 'incident', 'preventive_action', or 'normal'.
-        - 'incident': Indicates a critical error, failure, or security breach that requires immediate attention.
-        - 'preventive_action': Indicates a warning or potential issue that should be investigated to prevent future problems.
-        - 'normal': Indicates a routine, informational message.
-        Log Entry: "{log_message}"
-        Classification:
-        """
-        response = gemini_model.generate_content(prompt)
-        classification = response.text.strip().lower()
-
-        if "incident" in classification:
-            return "incident"
-        if "preventive_action" in classification:
-            return "preventive_action"
-        return "normal"
-
-    except Exception as e:
-        print(f"Error classifying log with Gemini: {e}")
         return None
 
-
-# --- Function to classify logs using Local Model ---
-def classify_log_with_local_model(log_message, api_url):
-    """Classifies a log message using a local model. Returns (classification, confidence)."""
-    if not log_message:
-        return "unknown", 0
-
-    # Check cache first
-    if log_message in log_cache:
-        # Move to end to mark as recently used (LRU)
-        log_cache.move_to_end(log_message)
-        return log_cache[log_message]
-
     try:
-        prompt = f"""
-        Analyze the following log entry and classify it into one of three categories: 'incident', 'preventive_action', or 'normal'.
-        After the classification, on a new line, provide a confidence score from 1 (very uncertain) to 10 (very certain).
-        Log Entry: "{log_message}"
-        Classification:
-        Confidence:
-        """
-        headers = {"Content-Type": "application/json"}
-        data = {"prompt": prompt, "model": "ollama", "stream": False}
+        prompt = f"""<|im_start|>system
+You are a helpful assistant that analyzes log messages and provides actionable suggestions.
+<|im_end|>
+<|im_start|>user
+Analyze the following warning log and provide suggestions on how to fix it.
+Log Entry: \"{log_message}\" 
+<|im_end|>
+<|im_start|>assistant
+"""
+        
+        generated_text = llm_model.invoke(prompt).strip()
+        return generated_text
 
-        response = requests.post(api_url, headers=headers, json=data, timeout=60)
-        response.raise_for_status()
-
-        response_json = response.json()
-        content = ""
-        if api_url == OLLAMA_API_URL:
-            content = response_json.get('response', '').strip().lower()
-
-        classification = "unknown"
-        confidence = 0
-
-        lines = content.split('\n')
-        for line in lines:
-            if line.lower().startswith("classification:"):
-                classification = line.split(":")[1].strip()
-            elif line.lower().startswith("confidence:"):
-                try:
-                    confidence = int(line.split(":")[1].strip())
-                except (ValueError, IndexError):
-                    pass
-
-        # Store in cache
-        result = (classification, confidence)
-        log_cache[log_message] = result
-        if len(log_cache) > CACHE_SIZE:
-            log_cache.popitem(last=False) # Remove oldest item (first in order)
-
-        return classification, confidence
-
-    except requests.exceptions.ConnectionError:
-        print(f"Error: API not reachable at {api_url}. Is it running?")
-        return None, 0
-    except requests.exceptions.RequestException as e:
-        print(f"Error classifying log with local model: {e}")
-        return None, 0
     except Exception as e:
-        print(f"Unexpected error in local model classification: {e}")
-        return None, 0
-
+        print(f"Error getting suggestions from Qwen: {e}")
+        traceback.print_exc()
+        return None
 
 # --- Main Execution ---
 if __name__ == "__main__":
@@ -207,47 +158,39 @@ if __name__ == "__main__":
             log_entry = message.value
             log_message = log_entry.get("message", "")
 
-            # Step 1: Try Ollama
-            final_prediction, confidence = classify_log_with_local_model(log_message, OLLAMA_API_URL)
+            # Classify the log using XGBoost
+            vectorized_log = vectorizer.transform([log_message])
+            prediction_encoded = xgb_model.predict(vectorized_log)[0]
+            prediction = label_encoder.inverse_transform([prediction_encoded])[0]
 
-            # Step 2: If Ollama fails, fall back to Gemini
-            if final_prediction is None or final_prediction == "unknown":
-                print("Ollama failed or returned unknown. Falling back to Gemini API...")
-                final_prediction = classify_log_with_gemini(log_message)
-                confidence = 0
-
-            # Create classified log entry
             classified_log = {
-                **log_entry,  # Include original log data
-                'classification': final_prediction,
+                **log_entry,
+                'classification': prediction,
                 'classified_timestamp': time.time(),
                 'source_topic': message.topic
             }
-            
-            # Send classified log to classified-logs topic
+
+            if prediction == 'preventive_action':
+                suggestions = get_warning_suggestions(log_message)
+                if suggestions:
+                    classified_log['suggestions'] = suggestions
+                    print(f"Suggestion for '{log_message[:50]}...': {suggestions}")
+
             producer.send(KAFKA_CLASSIFIED_LOGS_TOPIC, classified_log)
 
-            # Step 3: If all models fail, mark as unknown
-            if final_prediction is None:
-                print("All models failed. Marking as 'unknown'.")
-                final_prediction = "unknown"
+            print(f"Consumed: {{'message': '{log_message[:100]}...'}} -> Classified as: {prediction}")
 
-            # Print result
-            print(f"Consumed: {{'message': '{log_message[:100]}...'}} -> Classified as: {final_prediction} (Confidence: {confidence})\n")
-
-            # Step 4: Update counters
-            if final_prediction == "incident":
+            if prediction == "incident":
                 incident_total += 1
-            elif final_prediction == "preventive_action":
+            elif prediction == "preventive_action":
                 warning_total += 1
 
-            # Step 5: Push metrics periodically
             current_time = time.time()
             if current_time - last_metric_push_time >= METRIC_PUSH_INTERVAL_SEC:
                 push_metrics_to_victoria_metrics()
                 last_metric_push_time = current_time
 
-            time.sleep(1)  # Avoid hammering services
+            time.sleep(1)
 
     except KeyboardInterrupt:
         print("\nConsumer stopped by user.")
@@ -259,6 +202,5 @@ if __name__ == "__main__":
         if producer:
             producer.flush()
             producer.close()
-        # Push final metrics before exiting
         push_metrics_to_victoria_metrics()
         print("Log consumer shut down.")

@@ -9,8 +9,8 @@ KAFKA_TOPIC = 'logs'
 from kafka.errors import NoBrokersAvailable
 
 producer = None
-MAX_RETRIES = 10
-RETRY_DELAY_SEC = 5
+MAX_RETRIES = 20
+RETRY_DELAY_SEC = 10
 
 # Attempt to connect to Kafka with a retry mechanism in case the broker is not yet available.
 for i in range(MAX_RETRIES):

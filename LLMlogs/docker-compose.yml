@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -54,28 +52,29 @@ services:
     command: python log_producer.py
     environment:
       - PYTHONUNBUFFERED=1
+      - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
     depends_on:
       - kafka
     networks:
       - log-streaming
-    environment:
-      - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
       
   log-consumer:
     build:
       context: .
       dockerfile: Dockerfile.consumer
     restart: on-failure
+    volumes:
+      - ./xgboost_model.pkl:/app/xgboost_model.pkl
+      - ./vectorizer.pkl:/app/vectorizer.pkl
+      - ./label_encoder.pkl:/app/label_encoder.pkl
     depends_on:
-      kafka:
-        condition: service_started
-      victoria-metrics:
-        condition: service_started
-      ollama:
-        condition: service_started
+      - kafka
+      - victoria-metrics
+      - ollama
     networks:
       - log-streaming
     environment:
+      - PYTHONUNBUFFERED=1
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
       - RAW_LOGS_TOPIC=${RAW_LOGS_TOPIC:-raw-logs}
@@ -100,7 +99,13 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
+      - ./:/app
     command: ["serve"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - log-streaming
       
