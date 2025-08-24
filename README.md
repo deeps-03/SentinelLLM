@@ -198,9 +198,30 @@ This project processes logs through a series of interconnected services, ensurin
     docker-compose up -d
     ```
 
-6.  **Access Services:**
-    - Grafana: http://localhost:3000 (admin/admin)
-    - VictoriaMetrics: http://localhost:8428
+6.  **Access Grafana and VictoriaMetrics:**
+
+    *   **Access Grafana:** Open your web browser and go to `http://localhost:3000`.
+        *   Default login: `admin` / `admin` (you will be prompted to change the password).
+
+    *   **Add VictoriaMetrics as a Data Source in Grafana:**
+        1.  Go to `Connections` -> `Data sources`.
+        2.  Click `Add data source` and select `Prometheus`.
+        3.  Set the URL to `http://victoria-metrics:8428`.
+        4.  Click `Save & Test`.
+
+    *   **Create a Dashboard in Grafana:**
+        1.  Go to `Dashboards` -> `New dashboard`.
+        2.  Click `Add new panel`.
+        3.  In the "Query" tab, select your VictoriaMetrics data source.
+        4.  Add queries for `log_incident_total` and `log_warning_total` (for time series graphs) or `sum(log_incident_total)` and `sum(log_warning_total)` (for Stat/Gauge panels).
+        5.  Click `Apply` and then save your dashboard.
+
+    *   **Access VictoriaMetrics UI (Optional):** You can access the VictoriaMetrics UI at `http://localhost:8428` to directly query metrics.
+
+7.  **Stop all services:** Remember to run this from the `LLMlogs` directory.
+    ```bash
+    docker-compose down
+    ```
 
 ### AWS CloudWatch Integration 🔗
 
