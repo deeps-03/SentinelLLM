@@ -89,6 +89,7 @@ services:
     networks:
       - log-streaming
     environment:
+      - PYTHONUNBUFFERED=1
       - GRAFANA_API_KEY=${GRAFANA_API_KEY}
       - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
       - ANOMALIES_TOPIC=${ANOMALIES_TOPIC:-anomalies}
