@@ -32,20 +32,28 @@ RETRY_DELAY_SEC = 10
 METRIC_PUSH_INTERVAL_SEC = 10
 
 # --- Load XGBoost Model ---
-try:
-    with open('vectorizer.pkl', 'rb') as f:
-        vectorizer = pickle.load(f)
-    with open('label_encoder.pkl', 'rb') as f:
-        label_encoder = pickle.load(f)
-    with open('xgboost_model.pkl', 'rb') as f:
-        xgb_model = pickle.load(f)
-    print("XGBoost model, vectorizer, and label encoder loaded successfully.")
-except FileNotFoundError:
-    print("Error: xgboost_model.pkl not found. Make sure to train the model first.")
-    exit(1)
-except Exception as e:
-    print(f"Error loading XGBoost model: {e}")
-    exit(1)
+MAX_MODEL_LOAD_RETRIES = 10
+RETRY_DELAY_SEC = 5
+
+for i in range(MAX_MODEL_LOAD_RETRIES):
+    try:
+        with open('vectorizer.pkl', 'rb') as f:
+            vectorizer = pickle.load(f)
+        with open('label_encoder.pkl', 'rb') as f:
+            label_encoder = pickle.load(f)
+        with open('xgboost_model.pkl', 'rb') as f:
+            xgb_model = pickle.load(f)
+        print("XGBoost model, vectorizer, and label encoder loaded successfully.")
+        break  # Exit loop if successful
+    except FileNotFoundError:
+        print("Error: Model files not found. Make sure to train the model first.")
+        exit(1)
+    except Exception as e:
+        print(f"Error loading XGBoost model: {e}. Retrying in {RETRY_DELAY_SEC} seconds... (Attempt {i+1}/{MAX_MODEL_LOAD_RETRIES})")
+        if i == MAX_MODEL_LOAD_RETRIES - 1:
+            print("Failed to load model after multiple retries. Exiting.")
+            exit(1)
+        time.sleep(RETRY_DELAY_SEC)
 
 # --- Qwen AI (LlamaCpp) Model Setup ---
 llm_model = None
