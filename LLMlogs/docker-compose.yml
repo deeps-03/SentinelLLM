@@ -70,7 +70,6 @@ services:
     depends_on:
       - kafka
       - victoria-metrics
-      - ollama
     networks:
       - log-streaming
     environment:
@@ -93,22 +92,6 @@ services:
       - GRAFANA_API_KEY=${GRAFANA_API_KEY}
       - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
       - ANOMALIES_TOPIC=${ANOMALIES_TOPIC:-anomalies}
-      
-  ollama:
-    image: ollama/ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-      - ./:/app
-    command: ["serve"]
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - log-streaming
       
   aws-log-poller:
     build:
@@ -189,6 +172,5 @@ networks:
 volumes:
   victoria-metrics-data:
   grafana-data:
-  ollama-data:
   aws-checkpoints:
   azure-checkpoints:
