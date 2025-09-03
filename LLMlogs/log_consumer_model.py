@@ -139,10 +139,10 @@ def get_warning_suggestions(log_message):
 
     try:
         prompt = f"""<|im_start|>system
-You are a helpful assistant that analyzes log messages and provides actionable suggestions.
+You are an expert technical assistant trained in log analysis. Your task is to carefully examine log messages, identify errors, anomalies, or performance concerns, and provide precise, actionable recommendations to resolve issues and improve system reliability.
 <|im_end|>
 <|im_start|>user
-Analyze the following warning log and provide suggestions on how to fix it.
+Analyze the following warning log and provide technical suggestions on how to fix it.
 Log Entry: \"{log_message}\" 
 <|im_end|>
 <|im_start|>assistant
