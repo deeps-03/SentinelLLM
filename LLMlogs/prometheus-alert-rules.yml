@@ -1,0 +1,158 @@
+# Prometheus Alert Rules for Loki + Kafka Performance
+
+groups:
+- name: sentinellm-loki-kafka-alerts
+  rules:
+  
+  # High ingestion rate - potential bottleneck
+  - alert: HighLokiIngestionRate
+    expr: rate(loki_ingester_samples_received_total[1m]) > 8000
+    for: 2m
+    labels:
+      severity: warning
+      service: loki
+    annotations:
+      summary: "High Loki ingestion rate detected"
+      description: "Loki is ingesting {{ $value }} logs/sec, which is above the 8000/sec threshold"
+      
+  # Critical ingestion rate - immediate scaling needed
+  - alert: CriticalLokiIngestionRate
+    expr: rate(loki_ingester_samples_received_total[1m]) > 15000
+    for: 1m
+    labels:
+      severity: critical
+      service: loki
+    annotations:
+      summary: "Critical Loki ingestion rate - immediate scaling required"
+      description: "Loki is ingesting {{ $value }} logs/sec, exceeding critical threshold of 15000/sec"
+      
+  # Kafka consumer lag
+  - alert: HighKafkaConsumerLag
+    expr: kafka_consumer_lag_sum > 10000
+    for: 5m
+    labels:
+      severity: warning
+      service: kafka
+    annotations:
+      summary: "High Kafka consumer lag detected"
+      description: "Kafka consumer lag is {{ $value }} messages on topic {{ $labels.topic }}"
+      
+  # Critical Kafka lag
+  - alert: CriticalKafkaConsumerLag
+    expr: kafka_consumer_lag_sum > 50000
+    for: 2m
+    labels:
+      severity: critical
+      service: kafka
+    annotations:
+      summary: "Critical Kafka consumer lag - data pipeline backup"
+      description: "Kafka consumer lag is {{ $value }} messages - pipeline may be overwhelmed"
+      
+  # Loki ingester instance down
+  - alert: LokiIngesterDown
+    expr: up{job="loki"} == 0
+    for: 1m
+    labels:
+      severity: critical
+      service: loki
+    annotations:
+      summary: "Loki ingester instance is down"
+      description: "Loki ingester {{ $labels.instance }} has been down for more than 1 minute"
+      
+  # Kafka broker down
+  - alert: KafkaBrokerDown
+    expr: up{job="kafka"} == 0
+    for: 1m
+    labels:
+      severity: critical
+      service: kafka
+    annotations:
+      summary: "Kafka broker is down"
+      description: "Kafka broker {{ $labels.instance }} has been down for more than 1 minute"
+      
+  # Loki-Kafka forwarder errors
+  - alert: LokiForwarderHighErrorRate
+    expr: rate(loki_forwarder_errors_total[5m]) > 10
+    for: 2m
+    labels:
+      severity: warning
+      service: loki-forwarder
+    annotations:
+      summary: "High error rate in Loki-Kafka forwarder"
+      description: "Loki forwarder is experiencing {{ $value }} errors/sec"
+      
+  # Memory usage alerts
+  - alert: HighMemoryUsageLoki
+    expr: (container_memory_usage_bytes{name=~".*loki.*"} / container_spec_memory_limit_bytes) > 0.8
+    for: 5m
+    labels:
+      severity: warning
+      service: loki
+    annotations:
+      summary: "High memory usage in Loki"
+      description: "Loki memory usage is {{ $value | humanizePercentage }} of limit"
+      
+  - alert: HighMemoryUsageKafka
+    expr: (container_memory_usage_bytes{name=~".*kafka.*"} / container_spec_memory_limit_bytes) > 0.8
+    for: 5m
+    labels:
+      severity: warning
+      service: kafka
+    annotations:
+      summary: "High memory usage in Kafka"
+      description: "Kafka memory usage is {{ $value | humanizePercentage }} of limit"
+      
+  # CPU usage alerts
+  - alert: HighCPUUsageLoki
+    expr: rate(container_cpu_usage_seconds_total{name=~".*loki.*"}[1m]) > 0.8
+    for: 5m
+    labels:
+      severity: warning
+      service: loki
+    annotations:
+      summary: "High CPU usage in Loki"
+      description: "Loki CPU usage is {{ $value | humanizePercentage }}"
+      
+  # Disk space alerts
+  - alert: LokiDiskSpaceLow
+    expr: (node_filesystem_avail_bytes{mountpoint="/loki"} / node_filesystem_size_bytes{mountpoint="/loki"}) < 0.2
+    for: 5m
+    labels:
+      severity: warning
+      service: loki
+    annotations:
+      summary: "Low disk space for Loki storage"
+      description: "Loki storage has only {{ $value | humanizePercentage }} space remaining"
+      
+  # Auto-scaling alerts
+  - alert: HorizontalPodAutoscalerNotScaling
+    expr: kube_hpa_status_current_replicas == kube_hpa_spec_min_replicas and rate(loki_ingester_samples_received_total[5m]) > 5000
+    for: 10m
+    labels:
+      severity: warning
+      service: kubernetes
+    annotations:
+      summary: "HPA not scaling despite high load"
+      description: "HPA {{ $labels.hpa }} has not scaled up despite high ingestion rate"
+      
+  # Query performance alerts
+  - alert: SlowLokiQueries
+    expr: histogram_quantile(0.95, rate(loki_request_duration_seconds_bucket[5m])) > 30
+    for: 5m
+    labels:
+      severity: warning
+      service: loki
+    annotations:
+      summary: "Slow Loki query performance"
+      description: "95th percentile query time is {{ $value }}s"
+      
+  # Batch processing alerts
+  - alert: ForwarderBatchProcessingDelayed
+    expr: loki_forwarder_batch_age_seconds > 300
+    for: 5m
+    labels:
+      severity: warning
+      service: loki-forwarder
+    annotations:
+      summary: "Batch processing delayed in forwarder"
+      description: "Oldest batch in forwarder is {{ $value }}s old"

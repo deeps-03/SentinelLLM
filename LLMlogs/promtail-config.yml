@@ -1,0 +1,135 @@
+# Promtail Configuration for Multi-Source Log Collection
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    batch_wait: 1s
+    batch_size: 1048576  # 1MB batches for high throughput
+
+scrape_configs:
+  # Docker container logs
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.+)'
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+    pipeline_stages:
+      - docker: {}
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+      - labels:
+          stream:
+          container:
+          service:
+      # Rate limiting per container
+      - limit:
+          rate: 1000
+          burst: 2000
+          drop: true
+
+  # File-based log collection
+  - job_name: log-files
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: log-files
+          __path__: /var/log/**/*.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\S+)\s+(?P<level>\S+)\s+(?P<message>.+)$'
+      - timestamp:
+          source: timestamp
+          format: '2006-01-02T15:04:05'
+      - labels:
+          level:
+      # Rate limiting for file logs
+      - limit:
+          rate: 1000
+          burst: 2000
+
+  # Direct API endpoint for external log sources
+  - job_name: api-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: api-logs
+          source: external-api
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            source: source
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+      - labels:
+          level:
+          source:
+      # Rate limiting for API logs
+      - limit:
+          rate: 1000
+          burst: 2000
+
+  # AWS CloudWatch logs (via log file)
+  - job_name: aws-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: aws-logs
+          source: aws-cloudwatch
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\S+\s+\S+)\s+\[(?P<level>\w+)\]\s+(?P<message>.+)$'
+      - timestamp:
+          source: timestamp
+          format: '2006-01-02 15:04:05'
+      - labels:
+          level:
+          source:
+
+  # Azure Monitor logs (via log file)
+  - job_name: azure-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: azure-logs
+          source: azure-monitor
+    pipeline_stages:
+      - json:
+          expressions:
+            TimeGenerated: TimeGenerated
+            SeverityLevel: SeverityLevel
+            Message: Message
+            Computer: Computer
+      - timestamp:
+          source: TimeGenerated
+          format: RFC3339
+      - labels:
+          severity: SeverityLevel
+          computer: Computer
+          source:
+
+# Global rate limiting
+limits_config:
+  readline_rate: 10000  # High readline rate for volume
+  readline_burst: 20000
+  max_streams: 5000
