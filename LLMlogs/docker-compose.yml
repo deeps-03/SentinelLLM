@@ -165,6 +165,119 @@ services:
       - SEND_PREVENTIVE_EMAILS=${SEND_PREVENTIVE_EMAILS:-false}
       - GRAFANA_BASE_URL=${GRAFANA_BASE_URL:-http://localhost:3000}
 
+  # === LOKI INTEGRATION SERVICES ===
+  
+  loki:
+    image: grafana/loki:2.9.0
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - log-streaming
+    profiles:
+      - aws-loki
+      - azure-loki
+      - loki
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    ports:
+      - "9080:9080"
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - log-streaming
+    profiles:
+      - aws-loki
+      - azure-loki
+      - loki
+
+  loki-kafka-forwarder:
+    build:
+      context: .
+      dockerfile: Dockerfile.loki_forwarder
+    depends_on:
+      - loki
+      - kafka
+    networks:
+      - log-streaming
+    environment:
+      - LOKI_URL=http://loki:3100
+      - KAFKA_SERVERS=kafka:9093
+      - KAFKA_TOPIC=raw-logs
+      - BATCH_SIZE=${LOKI_BATCH_SIZE:-100}
+      - RATE_LIMIT=${LOKI_RATE_LIMIT:-1000}
+      - QUERY_INTERVAL=${LOKI_QUERY_INTERVAL:-10}
+    profiles:
+      - aws-loki
+      - azure-loki
+      - loki
+
+  aws-log-poller-loki:
+    build:
+      context: .
+      dockerfile: Dockerfile.aws_log_poller_loki
+    depends_on:
+      - loki
+    networks:
+      - log-streaming
+    volumes:
+      - aws-loki-checkpoints:/tmp
+    environment:
+      - LOKI_URL=http://loki:3100
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_LOG_GROUPS=${AWS_LOG_GROUPS}
+      - AWS_POLL_INTERVAL_SECONDS=${AWS_POLL_INTERVAL_SECONDS:-30}
+      - AWS_BATCH_SIZE=${AWS_BATCH_SIZE:-100}
+    profiles:
+      - aws-loki
+
+  # === MONITORING SERVICES ===
+  
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus-alert-rules.yml:/etc/prometheus/alert_rules.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    networks:
+      - log-streaming
+    profiles:
+      - monitoring
+      - aws-loki
+      - azure-loki
+
+  alertmanager:
+    image: prom/alertmanager:v0.25.0
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    networks:
+      - log-streaming
+    profiles:
+      - monitoring
+      - aws-loki
+      - azure-loki
+
 networks:
   log-streaming:
     driver: bridge
@@ -174,3 +287,6 @@ volumes:
   grafana-data:
   aws-checkpoints:
   azure-checkpoints:
+  loki-data:
+  aws-loki-checkpoints:
+  prometheus-data:

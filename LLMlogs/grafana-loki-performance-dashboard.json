@@ -1,0 +1,257 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "SentinelLLM - Loki + Kafka Performance Dashboard",
+    "tags": ["sentinellm", "loki", "kafka", "performance", "logs"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Log Ingestion Rate (Loki)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(loki_ingester_samples_received_total[1m])",
+            "legendFormat": "Loki Ingestion Rate"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Logs/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "alert": {
+          "conditions": [
+            {
+              "query": {
+                "queryType": "",
+                "refId": "A"
+              },
+              "reducer": {
+                "type": "avg",
+                "params": []
+              },
+              "evaluator": {
+                "params": [8000],
+                "type": "gt"
+              }
+            }
+          ],
+          "executionErrorState": "alerting",
+          "noDataState": "no_data",
+          "frequency": "30s",
+          "handler": 1,
+          "name": "High Loki Ingestion Rate",
+          "message": "Loki ingestion rate is above 8000 logs/sec - consider scaling"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Kafka Topic Lag",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "kafka_consumer_lag_sum{topic=\"raw-logs\"}",
+            "legendFormat": "Raw Logs Lag"
+          },
+          {
+            "expr": "kafka_consumer_lag_sum{topic=\"classified-logs\"}",
+            "legendFormat": "Classified Logs Lag"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "alert": {
+          "conditions": [
+            {
+              "query": {
+                "queryType": "",
+                "refId": "A"
+              },
+              "reducer": {
+                "type": "max",
+                "params": []
+              },
+              "evaluator": {
+                "params": [10000],
+                "type": "gt"
+              }
+            }
+          ],
+          "name": "High Kafka Consumer Lag",
+          "message": "Kafka consumer lag is above 10,000 messages"
+        }
+      },
+      {
+        "id": 3,
+        "title": "Loki to Kafka Forwarder Performance",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(loki_forwarder_logs_processed_total[1m])",
+            "legendFormat": "Logs Processed/sec"
+          },
+          {
+            "expr": "rate(loki_forwarder_logs_forwarded_total[1m])",
+            "legendFormat": "Logs Forwarded/sec"
+          },
+          {
+            "expr": "loki_forwarder_errors_total",
+            "legendFormat": "Total Errors"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1000},
+                {"color": "red", "value": 5000}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Loki Query Performance",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(loki_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(loki_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Duration (seconds)",
+            "min": 0
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "System Resource Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{name=~\".*loki.*\"}[1m]) * 100",
+            "legendFormat": "Loki CPU %"
+          },
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{name=~\".*kafka.*\"}[1m]) * 100",
+            "legendFormat": "Kafka CPU %"
+          },
+          {
+            "expr": "container_memory_usage_bytes{name=~\".*loki.*\"} / 1024 / 1024 / 1024",
+            "legendFormat": "Loki Memory (GB)"
+          },
+          {
+            "expr": "container_memory_usage_bytes{name=~\".*kafka.*\"} / 1024 / 1024 / 1024",
+            "legendFormat": "Kafka Memory (GB)"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Auto-scaling Events",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "increase(kube_hpa_status_current_replicas[1h])",
+            "legendFormat": "{{hpa}} replicas"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 7,
+        "title": "Log Processing Pipeline Health",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up{job=\"loki\"}",
+            "legendFormat": "Loki"
+          },
+          {
+            "expr": "up{job=\"kafka\"}",
+            "legendFormat": "Kafka"
+          },
+          {
+            "expr": "up{job=\"loki-forwarder\"}",
+            "legendFormat": "Loki Forwarder"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 8,
+        "title": "Log Volume by Source",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (source) (rate(loki_ingester_samples_received_total[5m]))",
+            "legendFormat": "{{source}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}
+      },
+      {
+        "id": 9,
+        "title": "Error Rates",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(loki_request_errors_total[1m])",
+            "legendFormat": "Loki Errors/sec"
+          },
+          {
+            "expr": "rate(kafka_network_request_errors_total[1m])",
+            "legendFormat": "Kafka Errors/sec"
+          },
+          {
+            "expr": "rate(loki_forwarder_errors_total[1m])",
+            "legendFormat": "Forwarder Errors/sec"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Errors/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "15s"
+  }
+}

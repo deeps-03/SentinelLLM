@@ -1,0 +1,58 @@
+# Dockerfile for Loki Kafka Forwarder
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install required system packages
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install additional dependencies for Loki forwarder
+RUN pip install --no-cache-dir aiohttp kafka-python
+
+# Copy the forwarder script
+COPY loki_kafka_forwarder.py .
+
+# Add health check endpoint
+COPY <<'EOF' /app/healthcheck.py
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+import time
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health' or self.path == '/ready':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+def start_health_server():
+    server = HTTPServer(('0.0.0.0', 8080), HealthHandler)
+    server.serve_forever()
+
+if __name__ == '__main__':
+    # Start health check server in background
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    
+    # Keep the main thread alive
+    while True:
+        time.sleep(1)
+EOF
+
+# Expose health check port
+EXPOSE 8080
+
+# Run the forwarder
+CMD ["python", "loki_kafka_forwarder.py"]
