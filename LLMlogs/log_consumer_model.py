@@ -31,7 +31,7 @@ METRIC_PUSH_INTERVAL_SEC = 10
 
 # --- Qwen AI (LlamaCpp) Model Setup ---
 llm_model = None
-model_path = "./qwen-model.gguf"
+model_path = "./qwen2-1.5b-log-classifier-Q5_K_M.gguf"
 
 try:
     llm_model = LlamaCpp(
