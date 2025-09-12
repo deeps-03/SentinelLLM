@@ -110,9 +110,9 @@ This project provides a complete, production-ready **real-time log analysis and 
                                                           /     |     \
                                                          /      |      \
                                                         v       v       v
-                                            +----------------+ +----------------+ +-------------------+
-                                            |  Email Alerts  | | Teams Messages | | Grafana Dashboard |
-                                            +----------------+ +----------------+ +-------------------+
+                                      +----------------+ +----------------+ +-------------------+
+                                      |  Email Alerts  | | Teams Messages | | Grafana Dashboard |
+                                      +----------------+ +----------------+ +-------------------+
 ```
 
 ## Pipeline Explanation 🌊
