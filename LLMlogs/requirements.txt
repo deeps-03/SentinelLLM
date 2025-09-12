@@ -13,3 +13,7 @@ langchain-community
 llama-cpp-python
 xgboost
 scikit-learn
+datasets
+peft
+trl
+accelerate

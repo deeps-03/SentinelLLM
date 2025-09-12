@@ -63,10 +63,6 @@ services:
       context: .
       dockerfile: Dockerfile.consumer
     restart: on-failure
-    volumes:
-      - ./xgboost_model.pkl:/app/xgboost_model.pkl
-      - ./vectorizer.pkl:/app/vectorizer.pkl
-      - ./label_encoder.pkl:/app/label_encoder.pkl
     depends_on:
       - kafka
       - victoria-metrics

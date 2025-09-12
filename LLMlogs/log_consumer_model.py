@@ -1,7 +1,6 @@
 import os
 import json
 import time
-import pickle
 import requests
 import traceback
 from collections import OrderedDict
@@ -9,9 +8,7 @@ from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import NoBrokersAvailable
 from dotenv import load_dotenv
 from langchain_community.llms import LlamaCpp
-import xgboost as xgb
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import LabelEncoder
+
 
 # --- Caching Configuration ---
 log_cache = OrderedDict()
@@ -31,33 +28,11 @@ MAX_RETRIES = 20
 RETRY_DELAY_SEC = 10
 METRIC_PUSH_INTERVAL_SEC = 10
 
-# --- Load XGBoost Model ---
-MAX_MODEL_LOAD_RETRIES = 10
-RETRY_DELAY_SEC = 5
 
-for i in range(MAX_MODEL_LOAD_RETRIES):
-    try:
-        with open('vectorizer.pkl', 'rb') as f:
-            vectorizer = pickle.load(f)
-        with open('label_encoder.pkl', 'rb') as f:
-            label_encoder = pickle.load(f)
-        with open('xgboost_model.pkl', 'rb') as f:
-            xgb_model = pickle.load(f)
-        print("XGBoost model, vectorizer, and label encoder loaded successfully.")
-        break  # Exit loop if successful
-    except FileNotFoundError:
-        print("Error: Model files not found. Make sure to train the model first.")
-        exit(1)
-    except Exception as e:
-        print(f"Error loading XGBoost model: {e}. Retrying in {RETRY_DELAY_SEC} seconds... (Attempt {i+1}/{MAX_MODEL_LOAD_RETRIES})")
-        if i == MAX_MODEL_LOAD_RETRIES - 1:
-            print("Failed to load model after multiple retries. Exiting.")
-            exit(1)
-        time.sleep(RETRY_DELAY_SEC)
 
 # --- Qwen AI (LlamaCpp) Model Setup ---
 llm_model = None
-model_path = "./qwen-model.gguf"
+model_path = "./qwen2-1.5b-log-classifier-Q5_K_M.gguf"
 
 try:
     llm_model = LlamaCpp(
@@ -128,6 +103,58 @@ def push_metrics_to_victoria_metrics():
     except requests.exceptions.RequestException as e:
         print(f"Error pushing metrics to VictoriaMetrics: {e}")
 
+# --- Function to classify log with Qwen ---
+def classify_log_with_llm(log_message):
+    if not llm_model:
+        print("Error: Qwen model not available.")
+        return "normal" # Default classification
+
+    if not log_message:
+        return "normal"
+
+    try:
+        prompt = f"""<|im_start|>system
+You are an expert log analysis assistant. Your task is to classify log messages into one of the following categories: 'incident', 'preventive_action', or 'normal'.
+- 'incident': Indicates a critical error, failure, or a significant security breach that requires immediate attention. These are issues that have already caused a service disruption or a security event. Examples: "database connection failed", "service unavailable", "unauthorized access detected", "application crash".
+- 'preventive_action': Indicates a warning, a potential issue, or a performance concern that should be addressed to prevent future problems. These are issues that have not yet caused a service disruption, but could lead to one if not addressed. Examples: "low disk space", "high CPU usage", "rate limit approaching", "cache refresh failed", "high latency warning".
+- 'normal': Indicates a routine operational message. Examples: "user session started", "data processing complete", "system health check passed", "EC2 instance started".
+
+Provide only the classification category as a single word: 'incident', 'preventive_action', or 'normal'. Do not add any extra characters or quotes.
+
+Example 1:
+User: Classify the following log message:
+Log Entry: "WARNING: High memory usage on server-db-01"
+Assistant: preventive_action
+
+Example 2:
+User: Classify the following log message:
+Log Entry: "ERROR: Database connection timed out"
+Assistant: incident
+<|im_end|>
+<|im_start|>user
+Classify the following log message:
+Log Entry: "{log_message}" 
+<|im_end|>
+<|im_start|>assistant
+"""
+        
+        classification = llm_model.invoke(prompt).strip().lower().strip("'\"")
+        
+        # Ensure the output is one of the valid classifications
+        if classification not in ['incident', 'preventive_action', 'normal']:
+            # Here we could add some logic to handle unexpected output from the LLM.
+            # For now, we'll default to 'normal' if the output is not what we expect.
+            print(f"LLM returned an unexpected classification: '{classification}'. Defaulting to 'normal'.")
+            return "normal"
+            
+        return classification
+
+    except Exception as e:
+        print(f"Error getting classification from Qwen: {e}")
+        traceback.print_exc()
+        return "normal" # Default classification on error
+
+
 # --- Function to get suggestions from Qwen ---
 def get_warning_suggestions(log_message):
     if not llm_model:
@@ -166,10 +193,8 @@ if __name__ == "__main__":
             log_entry = message.value
             log_message = log_entry.get("message", "")
 
-            # Classify the log using XGBoost
-            vectorized_log = vectorizer.transform([log_message])
-            prediction_encoded = xgb_model.predict(vectorized_log)[0]
-            prediction = label_encoder.inverse_transform([prediction_encoded])[0]
+            # Classify the log using the LLM
+            prediction = classify_log_with_llm(log_message)
 
             classified_log = {
                 **log_entry,
