@@ -1,16 +1,26 @@
 # SentinelLLM 🚀
 
 ## Project Description 📝
-This project provides a complete, production-ready **real-time log analysis and streaming platform** that leverages a robust stack of Dockerized services. It features AI-powered log classification using a local LLM, cloud log ingestion from **AWS CloudWatch** and **Azure Monitor**, and comprehensive alerting via **Email** and **Microsoft Teams**.
+This project provides a complete, production-ready **real-time log analysis and streaming platform** that leverages a robust stack of Dockerized services. It features AI-powered log classification using our in-house fine-tuned LLM, `Deeps03/qwen2-1.5b-log-classifier`, cloud log ingestion from **AWS CloudWatch** and **Azure Monitor**, and comprehensive alerting via **Email** and **Microsoft Teams**.
 
 ## Key Features ✨
 
 ### Core Features
-*   **AI-Powered Log Classification:** Uses a local `Qwen/Qwen2-1.5B-Instruct` model to intelligently classify logs into `incident` 🚨, `preventive_action` 🛠️, or `normal`.
+*   **AI-Powered Log Classification:** Uses our own fine-tunned model from hugging face `Deeps03/qwen2-1.5b-log-classifier` to intelligently classify logs into `incident` 🚨, `preventive_action` 🛠️, or `normal`.
 *   **Real-time Streaming:** Kafka-based log streaming architecture for high-throughput processing.
 *   **Anomaly Detection:** Automatic detection of unusual log patterns with configurable thresholds.
 *   **Metrics Collection:** Classified log counts and anomalies pushed to VictoriaMetrics for time-series storage.
 *   **Real-time Visualization:** Grafana dashboards for live insights into log classification metrics.
+
+### Fine-Tuning
+*   **In-house Model Training:** Includes a complete workflow for fine-tuning the log classification model on your own data.
+*   **PEFT with LoRA:** Uses Parameter-Efficient Fine-Tuning (PEFT) with Low-Rank Adaptation (LoRA) for efficient and effective training.
+*   **Customizable Training:** The `fine_tune.py` script provides a flexible framework for fine-tuning the model on different datasets and with different training parameters.
+
+### Loki Integration
+*   **High-Volume Log Handling:** The Loki integration is specifically designed to handle large volumes of logs (10,000+ events/second).
+*   **Buffering and Rate-Limiting:** Uses Loki as a buffer and a custom `loki-kafka-forwarder` service for intelligent batching and rate-limiting.
+*   **Scalability:** The Loki integration can be deployed on Kubernetes for auto-scaling.
 
 ### Cloud Log Ingestion 🌩️
 *   **AWS CloudWatch Integration:** Real-time polling of CloudWatch log groups with checkpoint management.
@@ -34,7 +44,8 @@ This project provides a complete, production-ready **real-time log analysis and 
 *   **Comprehensive Logging:** Structured logging throughout all services.
 
 ## Technologies Used 🛠️
-*   **AI Model:** Qwen/Qwen2-1.5B-Instruct (via LlamaCpp)
+*   **AI Model:** `Deeps03/qwen2-1.5b-log-classifier` (via LlamaCpp)
+*   **Fine-Tuning:** PEFT (Parameter-Efficient Fine-Tuning) with LoRA
 *   **Python Libraries:** 
     *   `langchain`, `langchain-community`, `llama-cpp-python` - AI classification
     *   `kafka-python` - Streaming
@@ -42,67 +53,66 @@ This project provides a complete, production-ready **real-time log analysis and 
     *   `azure-monitor-query`, `azure-identity` - Azure integration
     *   `requests` - HTTP communications
     *   `python-dotenv` - Configuration management
-*   **Infrastructure:** Kafka & Zookeeper, VictoriaMetrics, Grafana
+*   **Infrastructure:** Kafka & Zookeeper, VictoriaMetrics, Grafana, Loki
 *   **Cloud Platforms:** AWS CloudWatch, Azure Monitor/Log Analytics
 *   **Notification Systems:** SMTP Email, Microsoft Teams Webhooks
 *   **Containerization:** Docker & Docker Compose
 
 ## Architecture Diagram 🗺️
 ```
-                    Cloud Log Sources                           Notification Channels
-                         │                                           │
-        ┌────────────────┼────────────────┐                         │
-        │                │                │                         │
-   ┌────▼───┐       ┌────▼────┐      ┌────▼────┐                   │
-   │AWS     │       │Azure    │      │Local    │                   │
-   │Logs    │       │Monitor  │      │Producer │                   │
-   │Poller  │       │Poller   │      │         │                   │
-   └────┬───┘       └────┬────┘      └────┬────┘                   │
-        │                │                │                        │
-        └────────────────┼────────────────┘                        │
-                         │                                          │
-                    ┌────▼────┐                                     │
-                    │ Kafka   │                                     │
-                    │raw-logs │                                     │
-                    └────┬────┘                                     │
-                         │                                          │
-                   ┌─────▼──────┐                                   │
-                   │Log Consumer│                                   │
-                   │+ XGBoost   │                                   │
-                   │+ Qwen LLM  │                                   │
-                   └─────┬──────┘                                   │
-                         │                                          │
-              ┌──────────┼───────────┐                             │
-              │          │           │                             │
-         ┌────▼───┐ ┌────▼───────┐  │                             │
-         │Kafka   │ │Victoria    │  │                             │
-         │class.  │ │Metrics     │  │                             │
-         │logs    │ │            │  │                             │
-         └────┬───┘ └────┬───────┘  │                             │
-              │          │          │                             │
-              │     ┌────▼────┐     │                             │
-              │     │Anomaly  │     │                             │
-              │     │Detector │     │                             │
-              │     └────┬────┘     │                             │
-              │          │          │                             │
-              │      ┌───▼────┐     │                             │
-              │      │Kafka   │     │                             │
-              │      │anomal. │     │                             │
-              │      └───┬────┘     │                             │
-              │          │          │                             │
-              └──────────┼──────────┘                             │
-                         │                                         │
-                   ┌─────▼──────┐                                  │
-                   │ Notifier   │──────────────────────────────────┘
-                   │ Service    │
-                   └────────────┘
-                         │
-              ┌──────────┼──────────┐
-              │          │          │
-         ┌────▼───┐ ┌────▼────┐┌───▼────┐
-         │Email   │ │Teams    ││Grafana │
-         │Alerts  │ │Messages ││Dashbrd │
-         └────────┘ └─────────┘└────────┘
+                         +---------------------+     +---------------------+     +---------------------+
+                         |    AWS CloudWatch   |     |    Azure Monitor    |     | Local Log Producer  |
+                         +---------------------+     +---------------------+     +---------------------+
+                                   |                        |                          |
+                                   |                        |                          |
+                                   +------------------------+--------------------------+
+                                                            |
+                                                            v
+                                                   +---------------------+
+                                                   |    Loki (Buffer)    |
+                                                   +---------------------+
+                                                            |
+                                                            v
+                                                   +---------------------+
+                                                   |   loki-kafka-fwd    |
+                                                   +---------------------+
+                                                            |
+                                                            v
+                                                   +---------------------+
+                                                   |  Kafka (raw-logs)   |
+                                                   +---------------------+
+                                                            |
+                                                            v
+                                     +---------------------------------------------------+
+                                     |                   Log Consumer                    |
+                                     | (+ Deeps03/qwen2-1.5b-log-classifier LLM)         |
+                                     +---------------------------------------------------+
+                                                            |
+                                                            v
+                                                   +---------------------+
+                                                   |  VictoriaMetrics    |
+                                                   +---------------------+
+                                                            |
+                                                            v
+                                                   +---------------------+
+                                                   |  Anomaly Detector   |
+                                                   +---------------------+
+                                                            |
+                                                            v
+                                                   +---------------------+
+                                                   |  Kafka (anomalies)  |
+                                                   +---------------------+
+                                                            |
+                                                            v
+                                                   +---------------------+
+                                                   |      Notifier       |
+                                                   +---------------------+
+                                                          /     |     \
+                                                         /      |      \
+                                                        v       v       v
+                                            +----------------+ +----------------+ +-------------------+
+                                            |  Email Alerts  | | Teams Messages | | Grafana Dashboard |
+                                            +----------------+ +----------------+ +-------------------+
 ```
 
 ## Pipeline Explanation 🌊
@@ -117,9 +127,8 @@ This project processes logs through a series of interconnected services, ensurin
 
 2.  **Log Consumption and Classification:**
     *   The **Log Consumer** service subscribes to the `raw-logs` Kafka topic.
-    *   Upon receiving a log entry, the Log Consumer first uses a pre-trained **XGBoost model** (along with a TF-IDF vectorizer and Label Encoder) to classify the log into one of three categories: `incident`, `preventive_action`, or `normal`.
-    *   If the log is classified as `preventive_action` (or `warning`), the Log Consumer then invokes the **Qwen/Qwen2-1.5B-Instruct LLM**.
-    *   The LLM analyzes the log message and generates actionable suggestions on how to address the potential issue.
+    *   Upon receiving a log entry, the Log Consumer invokes the fine-tuned **`Deeps03/qwen2-1.5b-log-classifier` LLM** to classify the log into one of three categories: `incident`, `preventive_action`, or `normal`.
+    *   If the log is classified as `preventive_action` (or `warning`), the LLM also generates actionable suggestions on how to address the potential issue.
     *   The original log entry, along with its classification and any generated suggestions, is then published to the **`classified-logs` Kafka topic**.
 
 3.  **Anomaly Detection:**
@@ -167,38 +176,13 @@ This project processes logs through a series of interconnected services, ensurin
     cp .env.example .env
     ```
 
-4.  **Train the ML Models (XGBoost, TF-IDF Vectorizer, Label Encoder):**
-    These models are used for the initial classification of log messages into `incident`, `preventive_action`, or `normal`.
-
-    a. **Create and activate a Python virtual environment:**
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    ```
-
-    b. **Install Python dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-    c. **Run the training script:**
-    ```bash
-    python model_train.py
-    ```
-    This script will generate `xgboost_model.pkl`, `vectorizer.pkl`, and `label_encoder.pkl` in the current directory.
-
-    d. **Deactivate the virtual environment:**
-    ```bash
-    deactivate
-    ```
-
-5.  **Build and Start Core Services:**
+4.  **Build and Start Core Services:**
     ```bash
     docker-compose build --no-cache
     docker-compose up -d
     ```
 
-6.  **Access Grafana and VictoriaMetrics:**
+5.  **Access Grafana and VictoriaMetrics:**
 
     *   **Access Grafana:** Open your web browser and go to `http://localhost:3000`.
         *   Default login: `admin` / `admin` (you will be prompted to change the password).
@@ -218,10 +202,34 @@ This project processes logs through a series of interconnected services, ensurin
 
     *   **Access VictoriaMetrics UI (Optional):** You can access the VictoriaMetrics UI at `http://localhost:8428` to directly query metrics.
 
-7.  **Stop all services:** Remember to run this from the `LLMlogs` directory.
+6.  **Stop all services:** Remember to run this from the `LLMlogs` directory.
     ```bash
     docker-compose down
     ```
+
+### Fine-Tuning the LLM
+
+1.  **Prepare your dataset:** Create a JSONL file with your log messages and their corresponding labels (e.g., `generated_logs.jsonl`). Each line should be a JSON object with a "message" and "label" key.
+
+2.  **Set up the fine-tuning script:** Open the `fine_tune.py` script and replace `hf_your_token_here` with your Hugging Face access token. You can also customize the `model_name`, `dataset_path`, `output_dir`, and `repo_id` variables.
+
+3.  **Run the fine-tuning script:**
+    ```bash
+    python fine_tune.py
+    ```
+
+4.  **Use the fine-tuned model:** Once the fine-tuning is complete, the new model will be pushed to the Hugging Face Hub. You can then update the `model_path` in the `log_consumer_model.py` script to use your fine-tuned model.
+
+### Loki Integration
+
+1.  **Enable the Loki profile:** Start the services with the `loki` profile:
+    ```bash
+    docker-compose --profile loki up -d --build
+    ```
+
+2.  **Configure the Loki-Kafka Forwarder:** The `loki-kafka-forwarder` service will automatically forward logs from Loki to Kafka. You can customize the batch size and rate limit in the `docker-compose.yml` file.
+
+3.  **Query logs in Loki:** You can use the Loki API or the Grafana Explore view to query the logs stored in Loki.
 
 ### AWS CloudWatch Integration 🔗
 
@@ -293,7 +301,7 @@ This project processes logs through a series of interconnected services, ensurin
 
 ```bash
 # Configure all settings in .env file, then:
-docker-compose --profile aws --profile azure up -d --build
+docker-compose --profile aws --profile azure --profile loki up -d --build
 ```
 
 ### Configuration Examples
