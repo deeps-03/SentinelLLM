@@ -17,3 +17,12 @@ datasets
 peft
 trl
 accelerate
+prophet
+tensorflow
+plotly
+kaleido
+pystan
+scipy
+matplotlib
+seaborn
+joblib

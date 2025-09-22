@@ -274,6 +274,33 @@ services:
       - aws-loki
       - azure-loki
 
+  multi-model-detector:
+    build:
+      context: .
+      dockerfile: Dockerfile.multi_model_detector
+    depends_on:
+      - kafka
+      - victoria-metrics
+    networks:
+      - log-streaming
+    volumes:
+      - model-cache:/app/model_cache
+    environment:
+      - PYTHONUNBUFFERED=1
+      - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
+      - PROMETHEUS_URL=${PROMETHEUS_URL:-http://victoria-metrics:8428/api/v1/query}
+      - GRAFANA_API_KEY=${GRAFANA_API_KEY}
+      - TRANSFORMERS_CACHE=/app/model_cache
+    deploy:
+      resources:
+        reservations:
+          memory: 4G
+        limits:
+          memory: 8G
+    profiles:
+      - multi-model
+      - full
+
 networks:
   log-streaming:
     driver: bridge
@@ -286,3 +313,4 @@ volumes:
   loki-data:
   aws-loki-checkpoints:
   prometheus-data:
+  model-cache:
