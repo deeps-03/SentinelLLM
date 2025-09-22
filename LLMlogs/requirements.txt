@@ -1,28 +1,40 @@
-kafka-python
-pandas
-requests
-numpy
-python-dotenv
-boto3
-azure-monitor-query
-azure-identity
-torch
-transformers
-langchain
-langchain-community
-llama-cpp-python
-xgboost
-scikit-learn
-datasets
-peft
-trl
-accelerate
-prophet
-tensorflow
-plotly
-kaleido
-pystan
-scipy
-matplotlib
-seaborn
-joblib
+# Core ML and Data Processing
+numpy==2.3.3
+pandas==2.3.2
+scikit-learn==1.7.2
+xgboost==3.0.5
+prophet==1.1.7
+joblib==1.4.2
+scipy==1.14.1
+
+# HTTP and API
+requests==2.32.5
+python-dotenv==1.1.1
+
+# Kafka for log streaming
+kafka-python==2.2.15
+
+# Cloud providers
+boto3==1.40.35
+azure-monitor-query==2.0.0
+azure-identity==1.25.0
+
+# Visualization (optional for dashboards)
+plotly==6.3.0
+matplotlib==3.9.3
+seaborn==0.13.2
+
+# Deep Learning (only if using advanced models)
+# torch==2.8.0
+# transformers==4.56.2
+
+# LangChain (only if using LLM features)  
+# langchain==0.3.27
+# langchain-community==0.3.29
+
+# Development dependencies
+# datasets==4.1.1
+# peft==0.17.1
+# trl==0.23.0
+# accelerate==1.10.1
+# llama-cpp-python==0.3.16
