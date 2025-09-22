@@ -30,3 +30,24 @@ Thumbs.db
 venv/
 .env/
 .env
+*_env/
+patch_analyzer_env/
+
+# Model files and cache
+*.pkl
+*.joblib
+*.bin
+*.model
+*.h5
+
+# Large data files
+*.csv
+*.json
+*.jsonl
+generated_logs.jsonl
+programmatically_labeled_logs.jsonl
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
