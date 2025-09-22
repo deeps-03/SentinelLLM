@@ -3,7 +3,7 @@ auth_enabled: false
 
 server:
   http_listen_port: 3100
-  grpc_listen_port: 9096
+  grpc_listen_port: 9095
   log_level: info
 
 common:
@@ -23,7 +23,8 @@ query_range:
     cache:
       embedded_cache:
         enabled: true
-        max_size_mb: 100
+        max_size_mb: 200
+  parallelise_shardable_queries: true
 
 schema_config:
   configs:
@@ -50,12 +51,12 @@ ingester:
         store: inmemory
       replication_factor: 1
     final_sleep: 0s
-  # Optimized for high volume
-  chunk_idle_period: 5m
+  # Optimized for high volume and fast queries
+  chunk_idle_period: 1m      # Faster chunk finalization
   chunk_block_size: 262144
-  chunk_target_size: 2097152  # 2MB chunks for high throughput
-  chunk_retain_period: 30s
-  max_chunk_age: 1h
+  chunk_target_size: 1048576  # 1MB chunks for faster queries
+  chunk_retain_period: 15s    # Faster chunk availability
+  max_chunk_age: 1h          # Force chunk creation for faster queries
   concurrent_flushes: 16  # Increased for better throughput
   flush_check_period: 10s
 
