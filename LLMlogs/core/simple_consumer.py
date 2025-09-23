@@ -24,11 +24,11 @@ except ImportError:
 load_dotenv()
 
 # Configuration
-KAFKA_BROKER = 'localhost:9092'  # Force localhost connection
+KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'kafka:9093')
 KAFKA_TOPIC = 'logs'
-KAFKA_RAW_LOGS_TOPIC = 'raw-logs'
-KAFKA_CLASSIFIED_LOGS_TOPIC = 'classified-logs'
-VICTORIAMETRICS_URL = 'http://localhost:8428/api/v1/import/prometheus'
+KAFKA_RAW_LOGS_TOPIC = os.getenv('RAW_LOGS_TOPIC', 'raw-logs')
+KAFKA_CLASSIFIED_LOGS_TOPIC = os.getenv('CLASSIFIED_LOGS_TOPIC', 'classified-logs')
+VICTORIAMETRICS_URL = 'http://victoria-metrics:8428/api/v1/import/prometheus'
 
 print(f"🔧 Using Kafka broker: {KAFKA_BROKER}")
 print(f"🔧 Using VictoriaMetrics URL: {VICTORIAMETRICS_URL}")

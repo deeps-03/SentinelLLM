@@ -26,11 +26,8 @@ if [ ! -f .env ]; then
     cp .env.example .env
     echo "✅ .env file created. Please edit it with your configuration before running services."
     
-    # Check if GEMINI_API_KEY is set
-    if ! grep -q "GEMINI_API_KEY=your-google-gemini-api-key-here" .env; then
-        echo "⚠️  Please set your GEMINI_API_KEY in the .env file before continuing."
-        exit 1
-    fi
+    # Using local Qwen model - no API key required
+    echo "✅ Using local Qwen model for log classification"
 else
     echo "📄 Found existing .env file"
 fi

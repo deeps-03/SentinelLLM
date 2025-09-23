@@ -61,7 +61,7 @@ services:
   log-consumer:
     build:
       context: .
-      dockerfile: Dockerfile.consumer
+      dockerfile: Dockerfile.simple_consumer
     restart: on-failure
     depends_on:
       - kafka
@@ -70,7 +70,7 @@ services:
       - log-streaming
     environment:
       - PYTHONUNBUFFERED=1
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Using local AI models - no external API keys needed
       - KAFKA_BROKER=${KAFKA_BROKER:-kafka:9093}
       - RAW_LOGS_TOPIC=${RAW_LOGS_TOPIC:-raw-logs}
       - CLASSIFIED_LOGS_TOPIC=${CLASSIFIED_LOGS_TOPIC:-classified-logs}
