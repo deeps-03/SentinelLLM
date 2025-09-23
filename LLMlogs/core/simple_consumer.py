@@ -54,8 +54,9 @@ except FileNotFoundError as e:
 # Initialize Qwen LLM if available
 llm_model = None
 if LLM_AVAILABLE:
-    model_path = "./qwen-model.gguf"
+    model_path = "./qwen2-1.5b-log-classifier-Q4_K_M.gguf"
     try:
+        print(f"🤖 Loading Qwen model '{model_path}'...")
         llm_model = LlamaCpp(
             model_path=model_path,
             n_ctx=2048,
@@ -63,7 +64,7 @@ if LLM_AVAILABLE:
             n_batch=512,
             verbose=False,
         )
-        print(f"✓ Qwen LLM model '{model_path}' initialized successfully!")
+        print(f"✅ Qwen LLM model '{model_path}' initialized successfully!")
     except Exception as e:
         print(f"⚠️  Error initializing Qwen model '{model_path}': {e}")
         print("⚠️  Continuing with basic suggestions...")

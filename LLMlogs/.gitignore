@@ -1,0 +1,27 @@
+# Large model files - keep locally but don't push to GitHub
+models/qwen/*.gguf
+models/qwen/.cache/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables
+.env
+.env.local
+
+# Docker volumes
+volumes/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
