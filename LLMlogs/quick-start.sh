@@ -15,7 +15,7 @@ if ! docker info > /dev/null 2>&1; then
 fi
 
 # Check if Docker Compose is available
-if ! command -v docker-compose > /dev/null 2>&1; then
+if ! command -v docker compose > /dev/null 2>&1; then
     echo "❌ Docker Compose is not installed. Please install Docker Compose and try again."
     exit 1
 fi
@@ -51,23 +51,23 @@ else
     choice=$1
 fi
 
-# Set docker-compose command based on choice
+# Set docker compose command based on choice
 case $choice in
     1|basic)
         echo "🔄 Starting basic services..."
-        COMPOSE_CMD="docker-compose up -d --build"
+        COMPOSE_CMD="docker compose up -d --build"
         ;;
     2|aws)
         echo "🔄 Starting services with AWS integration..."
-        COMPOSE_CMD="docker-compose --profile aws up -d --build"
+        COMPOSE_CMD="docker compose --profile aws up -d --build"
         ;;
     3|azure)
         echo "🔄 Starting services with Azure integration..."
-        COMPOSE_CMD="docker-compose --profile azure up -d --build"
+        COMPOSE_CMD="docker compose --profile azure up -d --build"
         ;;
     4|full)
         echo "🔄 Starting all services..."
-        COMPOSE_CMD="docker-compose --profile aws --profile azure up -d --build"
+        COMPOSE_CMD="docker compose --profile aws --profile azure up -d --build"
         ;;
     *)
         echo "❌ Invalid choice. Please run the script again."
@@ -75,7 +75,7 @@ case $choice in
         ;;
 esac
 
-# Execute the docker-compose command
+# Execute the docker compose command
 echo "⏳ Building and starting services..."
 eval $COMPOSE_CMD
 
@@ -90,16 +90,16 @@ echo "- Grafana: http://localhost:3000 (admin/admin)"
 echo "- VictoriaMetrics: http://localhost:8428"
 echo ""
 echo "🔍 Monitor logs:"
-echo "docker-compose logs -f log-consumer"
-echo "docker-compose logs -f notifier"
+echo "docker compose logs -f log-consumer"
+echo "docker compose logs -f notifier"
 echo ""
 echo "⏹️  Stop services:"
-echo "docker-compose down"
+echo "docker compose down"
 echo ""
 
 # Check service status
 echo "📋 Service status:"
-docker-compose ps
+docker compose ps
 
 echo ""
 echo "🎉 Setup complete! Check the logs to verify everything is working correctly."

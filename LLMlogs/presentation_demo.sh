@@ -47,7 +47,7 @@ check_prerequisites() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null; then
+    if ! command -v docker compose &> /dev/null; then
         print_error "Docker Compose is not installed" 
         exit 1
     fi
@@ -63,7 +63,7 @@ check_prerequisites() {
 # Clean up any existing containers
 cleanup_existing() {
     print_info "Cleaning up existing containers..."
-    docker-compose down --remove-orphans > /dev/null 2>&1 || true
+    docker compose down --remove-orphans > /dev/null 2>&1 || true
     print_status "Cleanup completed"
 }
 
@@ -72,7 +72,7 @@ start_system() {
     print_info "Starting SentinelLLM system..."
     print_info "This may take a few minutes on first run (downloading models)..."
     
-    docker-compose up -d --build
+    docker compose up -d --build
     
     if [ $? -eq 0 ]; then
         print_status "SentinelLLM system started successfully"
@@ -166,7 +166,7 @@ show_status() {
     echo "===================="
     
     # Check service status
-    docker-compose ps
+    docker compose ps
     
     echo ""
     echo "📊 ACCESS POINTS:"
@@ -202,11 +202,11 @@ show_demo_commands() {
     echo ""
     echo "🎮 DEMO COMMANDS:"
     echo "================"
-    echo "View logs:     docker-compose logs -f log-consumer"
-    echo "View metrics:  docker-compose logs -f anomaly-detector" 
-    echo "Restart:       docker-compose restart"
-    echo "Stop demo:     docker-compose down"
-    echo "Clean all:     docker-compose down --volumes --remove-orphans"
+    echo "View logs:     docker compose logs -f log-consumer"
+    echo "View metrics:  docker compose logs -f anomaly-detector" 
+    echo "Restart:       docker compose restart"
+    echo "Stop demo:     docker compose down"
+    echo "Clean all:     docker compose down --volumes --remove-orphans"
     echo ""
     echo "📊 PRESENTATION POINTS:"
     echo "======================"

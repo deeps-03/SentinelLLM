@@ -1,0 +1,65 @@
+version: '3.8'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - ai-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_HOST://kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - ai-network
+
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:latest
+    ports:
+      - "8428:8428"
+    command:
+      - "--storageDataPath=/victoria-metrics-data"
+      - "--httpListenAddr=:8428"
+    networks:
+      - ai-network
+
+  multi-model-analyzer:
+    build:
+      context: .
+      dockerfile: Dockerfile.multi_model_analyzer
+    depends_on:
+      - kafka
+      - victoria-metrics
+    environment:
+      - KAFKA_BROKER=kafka:9093
+      - VICTORIA_METRICS_URL=http://victoria-metrics:8428
+    networks:
+      - ai-network
+    volumes:
+      - ./models:/app/models
+
+  log-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.patch_log_producer
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BROKER=kafka:9093
+    networks:
+      - ai-network
+
+networks:
+  ai-network:
+    driver: bridge

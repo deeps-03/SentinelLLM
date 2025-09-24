@@ -72,14 +72,14 @@ AZURE_CLIENT_SECRET=your-client-secret
 #### 3. Deploy with Loki Integration
 ```bash
 # Build and start all services
-docker-compose --profile aws-loki up -d --build
+docker compose --profile aws-loki up -d --build
 
 # Check service health
-docker-compose ps
+docker compose ps
 
 # View logs
-docker-compose logs -f loki
-docker-compose logs -f loki-kafka-forwarder
+docker compose logs -f loki
+docker compose logs -f loki-kafka-forwarder
 ```
 
 #### 4. Verify Deployment
@@ -197,7 +197,7 @@ limits_config:
 
 #### Kafka Optimization
 ```yaml
-# In docker-compose.yml or Kubernetes deployment
+# In docker compose.yml or Kubernetes deployment
 environment:
   KAFKA_NUM_PARTITIONS: 12
   KAFKA_DEFAULT_REPLICATION_FACTOR: 3
@@ -288,7 +288,7 @@ docker stats
 kubectl top pods -n sentinellm
 
 # Solutions:
-# - Increase memory limits in docker-compose.yml or k8s deployment
+# - Increase memory limits in docker compose.yml or k8s deployment
 # - Reduce chunk_target_size in Loki config
 # - Enable chunk compression
 ```
@@ -296,7 +296,7 @@ kubectl top pods -n sentinellm
 #### 2. Ingestion Rate Limits
 ```bash
 # Check Loki logs for rate limiting
-docker-compose logs loki | grep "ingestion rate limit"
+docker compose logs loki | grep "ingestion rate limit"
 
 # Solutions:
 # - Increase ingestion_rate_mb in loki-config.yml

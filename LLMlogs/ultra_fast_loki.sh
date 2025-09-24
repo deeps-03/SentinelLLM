@@ -1,3 +1,51 @@
+#!/bin/bash
+
+# Ultra Fast Loki Integration with Real Log Generation
+echo "🚀 Ultra Fast Loki + Real Log Data Generation"
+echo "=============================================="
+
+# Start minimal Loki stack
+echo "📦 Starting Loki services..."
+cat > docker compose-ultra-loki.yml << 'EOF'
+version: '3.8'
+services:
+  loki:
+    image: grafana/loki:2.9.0
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - loki-net
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana-loki-performance-dashboard.json:/etc/grafana/provisioning/dashboards/dashboard.json
+    networks:
+      - loki-net
+
+  log-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.ultra_fast_loki
+    depends_on:
+      - loki
+    networks:
+      - loki-net
+    environment:
+      - LOKI_URL=http://loki:3100
+
+networks:
+  loki-net:
+    driver: bridge
+EOF
+
+# Create the ultra-fast log generator
+cat > integrations/ultra_fast_loki.py << 'EOF'
 #!/usr/bin/env python3
 """
 Ultra Fast Loki Log Generator with Realistic Spike Patterns
@@ -293,3 +341,47 @@ def main():
 
 if __name__ == "__main__":
     main()
+EOF
+
+# Create Dockerfile for ultra fast log generator
+cat > Dockerfile.ultra_fast_loki << 'EOF'
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install required packages
+COPY requirements_simple.txt .
+RUN pip install --no-cache-dir -r requirements_simple.txt
+
+# Copy the ultra fast generator
+COPY integrations/ultra_fast_loki.py .
+
+CMD ["python", "ultra_fast_loki.py"]
+EOF
+
+echo "🚀 Starting ultra fast Loki stack..."
+docker compose -f docker compose-ultra-loki.yml up -d
+
+echo ""
+echo "✅ Ultra Fast Loki Integration Started!"
+echo "📊 Services running:"
+echo "   • Loki: http://localhost:3100"
+echo "   • Grafana: http://localhost:3000 (admin/admin)"
+echo "   • Log Generator: Producing realistic spike patterns"
+echo ""
+echo "🎬 Generating realistic log patterns:"
+echo "   • Normal operation (low spike rate)"
+echo "   • Patch deployment (high error rate)"
+echo "   • System stress (frequent spikes)"  
+echo "   • Recovery phase (moderate activity)"
+echo ""
+echo "💡 View logs in Grafana or query Loki directly"
+echo "🛑 Press Ctrl+C to stop or run: docker compose -f docker compose-ultra-loki.yml down"
+
+# Keep running until interrupted
+trap 'echo "🛑 Stopping ultra fast Loki..."; docker compose -f docker compose-ultra-loki.yml down; exit 0' INT
+echo "⏳ Ultra fast Loki running... Press Ctrl+C to stop"
+while true; do
+    sleep 10
+    echo "📈 Log generation active - $(date)"
+done

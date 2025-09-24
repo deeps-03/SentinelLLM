@@ -34,8 +34,8 @@ mv explain*.sh scripts/ 2>/dev/null || true
 echo "Moving configuration files..."
 mv *.yml configs/ 2>/dev/null || true
 mv *.yaml configs/ 2>/dev/null || true
-mv docker-compose.yml . # Keep main compose file in root
-mv configs/docker-compose.yml . 2>/dev/null || true
+mv docker compose.yml . # Keep main compose file in root
+mv configs/docker compose.yml . 2>/dev/null || true
 
 # ML Models
 echo "Moving ML models..."
@@ -63,7 +63,7 @@ rm -f *~ 2>/dev/null || true
 
 # Files to keep in root
 ROOT_FILES="
-docker-compose.yml
+docker compose.yml
 .env
 .env.example
 requirements.txt

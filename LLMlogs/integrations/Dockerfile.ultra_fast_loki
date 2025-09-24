@@ -1,0 +1,8 @@
+FROM python:3.9-slim
+
+RUN pip install --no-cache-dir requests python-json-logger
+
+WORKDIR /app
+COPY integrations/ultra_fast_loki.py ./ultra_fast_loki.py
+
+CMD ["python", "ultra_fast_loki.py"]

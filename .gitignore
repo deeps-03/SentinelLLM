@@ -32,6 +32,7 @@ venv/
 .env
 *_env/
 patch_analyzer_env/
+LLMlogs/venv/
 
 # Model files and cache
 *.pkl
@@ -39,6 +40,9 @@ patch_analyzer_env/
 *.bin
 *.model
 *.h5
+*.gguf
+models/
+LLMlogs/models/
 
 # Large data files
 *.csv

@@ -235,7 +235,7 @@ class IsolationForestDetector:
             metrics.get('network_io', 0),
             metrics.get('error_rate', 0),
             metrics.get('response_time', 0),
-            metrics.get('request_count', 0)
+            metrics.get('request_count', 0), 0)
         ])
         
         # Derived features
@@ -316,63 +316,125 @@ class IsolationForestDetector:
 class MetaClassifier:
     """
     Meta-Classifier that combines outputs from all three models
-    Implements voting logic and confidence weighting
+    Implements weighted confidence scoring based on model strengths
     """
     
-    def __init__(self, voting_threshold: int = 2, confidence_weight: float = 0.3):
-        self.voting_threshold = voting_threshold  # Number of models needed for HIGH risk
-        self.confidence_weight = confidence_weight
+    def __init__(self):
+        # Model weights based on their strengths for different anomaly types
+        self.model_weights = {
+            'sliding_window': 0.3,   # EMA - good for sudden spikes
+            'prophet': 0.4,          # Prophet - best for time-series patterns  
+            'isolation_forest': 0.3  # Isolation Forest - good for novel anomalies
+        }
+        
+        # Confidence thresholds for action levels
+        self.confidence_thresholds = {
+            'HIGH': 0.90,      # All 3 models agree - immediate alert + auto-escalation
+            'MEDIUM': 0.70,    # 2 out of 3 models agree - alert with investigation
+            'LOW': 0.50,       # 1 model detects - log for review, no immediate alert
+            'NOISE': 0.0       # No consensus - filtered out
+        }
+        
+    def calculate_weighted_confidence(self, results: Dict[str, Dict[str, Any]]) -> float:
+        """
+        Calculate weighted confidence score using model-specific weights
+        Formula: Confidence = (Score_EMA × 0.3) + (Score_Prophet × 0.4) + (Score_IsolationForest × 0.3)
+        """
+        weighted_score = 0.0
+        total_weight = 0.0
+        
+        for model_name, weight in self.model_weights.items():
+            model_result = results.get(model_name, {})
+            model_confidence = model_result.get('confidence', 0.0)
+            
+            # Convert boolean detection to confidence score if needed
+            if 'detected' in model_result and isinstance(model_result['detected'], bool):
+                if model_result['detected']:
+                    model_confidence = max(model_confidence, 0.8)  # Minimum confidence for detection
+                    
+            weighted_score += model_confidence * weight
+            total_weight += weight
+            
+        return weighted_score / max(total_weight, 1.0)
+    
+    def determine_action_level(self, confidence: float, model_agreement: Dict[str, int]) -> tuple:
+        """Determine confidence level and recommended action based on agreement and confidence"""
+        
+        # Count model agreements
+        high_risk_count = model_agreement.get('high_risk', 0)
+        medium_risk_count = model_agreement.get('medium_risk', 0) 
+        total_models = model_agreement.get('total_models', 3)
+        
+        # Determine base confidence level from model agreement
+        if high_risk_count == total_models:  # All models agree on HIGH risk
+            base_level = "HIGH"
+            action = "Immediate alert + Auto-escalation"
+        elif high_risk_count >= 2 or (high_risk_count >= 1 and medium_risk_count >= 1):  # 2+ models agree
+            base_level = "MEDIUM" 
+            action = "Alert with investigation prompt"
+        elif high_risk_count >= 1 or medium_risk_count >= 1:  # At least 1 model detects
+            base_level = "LOW"
+            action = "Log for review, no immediate alert"
+        else:  # No model consensus
+            base_level = "NOISE"
+            action = "Filtered out"
+            
+        # Apply confidence threshold adjustments
+        if confidence >= self.confidence_thresholds['HIGH']:
+            final_level = "HIGH"
+            action = "Immediate alert + Auto-escalation"
+        elif confidence >= self.confidence_thresholds['MEDIUM']:
+            final_level = "MEDIUM" if base_level != "NOISE" else "LOW"
+            action = "Alert with investigation prompt"
+        elif confidence >= self.confidence_thresholds['LOW']:
+            final_level = "LOW" if base_level != "NOISE" else "LOW"
+            action = "Log for review, no immediate alert"
+        else:
+            final_level = "NOISE"
+            action = "Filtered out"
+            
+        return final_level, action
         
     def aggregate_results(self, results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """Aggregate results from all three models"""
+        """Aggregate results from all three models using weighted confidence"""
         models = ['sliding_window', 'prophet', 'isolation_forest']
         
-        # Count high/medium risk predictions
-        high_risk_count = sum(1 for model in models if results.get(model, {}).get('risk') == 'HIGH')
-        medium_risk_count = sum(1 for model in models if results.get(model, {}).get('risk') == 'MEDIUM')
+        # Count model agreement levels
+        model_agreement = {
+            'high_risk': sum(1 for model in models if results.get(model, {}).get('risk') == 'HIGH'),
+            'medium_risk': sum(1 for model in models if results.get(model, {}).get('risk') == 'MEDIUM'),
+            'total_models': len(models)
+        }
+        
+        # Calculate weighted confidence
+        weighted_confidence = self.calculate_weighted_confidence(results)
+        
+        # Determine final confidence level and action
+        confidence_level, recommended_action = self.determine_action_level(
+            weighted_confidence, model_agreement
+        )
         
         # Collect all detected anomalies
         all_anomalies = []
-        total_confidence = 0.0
-        valid_models = 0
-        
         for model_name in models:
             model_result = results.get(model_name, {})
             if model_result.get('detected'):
-                all_anomalies.extend(model_result['detected'])
-            if model_result.get('confidence', 0) > 0:
-                total_confidence += model_result['confidence']
-                valid_models += 1
+                if isinstance(model_result['detected'], list):
+                    all_anomalies.extend(model_result['detected'])
+                else:
+                    all_anomalies.append(f"{model_name}_anomaly")
         
-        # Determine final risk level
-        final_risk = "LOW"
-        if high_risk_count >= self.voting_threshold:
-            final_risk = "HIGH"
-        elif high_risk_count >= 1 or medium_risk_count >= 2:
-            final_risk = "MEDIUM"
-        elif medium_risk_count >= 1:
-            final_risk = "LOW"
-            
-        # Calculate weighted confidence
-        avg_confidence = total_confidence / max(valid_models, 1)
-        
-        # Apply confidence weighting to final risk
-        if avg_confidence < 0.3 and final_risk == "HIGH":
-            final_risk = "MEDIUM"
-        elif avg_confidence < 0.5 and final_risk == "MEDIUM":
-            final_risk = "LOW"
-            
         return {
             "patch_time": datetime.now().isoformat(),
-            "predicted_risk_level": final_risk,
+            "confidence_level": confidence_level,
+            "confidence_score": round(weighted_confidence, 3),
+            "confidence_percentage": f"{weighted_confidence:.1%}",
+            "recommended_action": recommended_action,
+            "predicted_risk_level": confidence_level,
             "expected_anomalies": list(set(all_anomalies)),
-            "confidence": avg_confidence,
-            "model_votes": {
-                "high_risk": high_risk_count,
-                "medium_risk": medium_risk_count,
-                "total_models": len(models)
-            },
-            "individual_results": results
+            "model_agreement": model_agreement,
+            "individual_results": results,
+            "thresholds_used": self.confidence_thresholds
         }
 
 class MultiModelAnomalyDetector:

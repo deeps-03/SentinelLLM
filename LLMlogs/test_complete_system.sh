@@ -61,7 +61,7 @@ echo "====================="
 run_test "Docker availability" "docker info"
 
 # Check Docker Compose
-run_test "Docker Compose availability" "docker-compose --version"
+run_test "Docker Compose availability" "docker compose --version"
 
 # Check Python
 run_test "Python 3.12+ availability" "python3 --version | grep -E 'Python 3\.(1[2-9]|[2-9][0-9])'"
@@ -134,7 +134,7 @@ echo "======================"
 
 # Start core services
 log_info "Starting core Docker services..."
-docker-compose up -d kafka zookeeper loki > /dev/null 2>&1
+docker compose up -d kafka zookeeper loki > /dev/null 2>&1
 log_success "Core services started"
 
 # Wait for services to initialize
@@ -142,10 +142,10 @@ log_info "Waiting for services to initialize (30 seconds)..."
 sleep 30
 
 # Test Kafka
-run_test "Kafka service" "docker-compose exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list"
+run_test "Kafka service" "docker compose exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list"
 
 # Test Zookeeper  
-run_test "Zookeeper service" "docker-compose exec zookeeper zkCli.sh ls /"
+run_test "Zookeeper service" "docker compose exec zookeeper zkCli.sh ls /"
 
 # Test Loki
 run_test "Loki service" "curl -s http://localhost:3100/ready"
@@ -237,10 +237,10 @@ echo "  python ultra_fast_loki.py"
 echo "  python test_multi_model_system.py"
 echo ""
 echo -e "${BLUE}To monitor services:${NC}"
-echo "  docker-compose logs -f"
+echo "  docker compose logs -f"
 echo ""
 echo -e "${BLUE}To stop services:${NC}"
-echo "  docker-compose down"
+echo "  docker compose down"
 
 # Cleanup
 deactivate 2>/dev/null || true

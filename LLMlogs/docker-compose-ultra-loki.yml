@@ -1,0 +1,35 @@
+version: '3.8'
+services:
+  loki:
+    image: grafana/loki:2.9.0
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - loki-net
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana-loki-performance-dashboard.json:/etc/grafana/provisioning/dashboards/dashboard.json
+    networks:
+      - loki-net
+
+  log-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.ultra_fast_loki
+    depends_on:
+      - loki
+    networks:
+      - loki-net
+    environment:
+      - LOKI_URL=http://loki:3100
+
+networks:
+  loki-net:
+    driver: bridge

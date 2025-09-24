@@ -44,7 +44,7 @@ echo "=============="
 
 # Check Docker
 quick_test "Docker availability" "docker info"
-quick_test "Docker Compose availability" "docker-compose --version"
+quick_test "Docker Compose availability" "docker compose --version"
 
 echo ""
 echo "📂 FILE STRUCTURE"
@@ -54,7 +54,7 @@ echo "================"
 quick_test "Patch analyzer exists" "[ -f 'patch_analyzer.py' ]"
 quick_test "Ultra-fast Loki exists" "[ -f 'ultra_fast_loki.py' ]"
 quick_test "Model training script exists" "[ -f 'model_train.py' ]"
-quick_test "Docker compose config" "[ -f 'docker-compose.yml' ]"
+quick_test "Docker compose config" "[ -f 'docker compose.yml' ]"
 quick_test "Requirements file" "[ -f 'requirements.txt' ]"
 
 # Check model files
@@ -69,7 +69,7 @@ echo "=================="
 
 # Start core services
 log_info "Starting core Docker services (Kafka, Zookeeper, Loki)..."
-if docker-compose up -d kafka zookeeper loki >/dev/null 2>&1; then
+if docker compose up -d kafka zookeeper loki >/dev/null 2>&1; then
     log_success "Docker services started"
     TESTS_PASSED=$((TESTS_PASSED + 1))
 else
@@ -82,9 +82,9 @@ log_info "Waiting for services to initialize (20 seconds)..."
 sleep 20
 
 # Test service availability
-quick_test "Kafka running" "docker-compose ps kafka | grep -q Up"
-quick_test "Zookeeper running" "docker-compose ps zookeeper | grep -q Up"  
-quick_test "Loki running" "docker-compose ps loki | grep -q Up"
+quick_test "Kafka running" "docker compose ps kafka | grep -q Up"
+quick_test "Zookeeper running" "docker compose ps zookeeper | grep -q Up"  
+quick_test "Loki running" "docker compose ps loki | grep -q Up"
 
 echo ""
 echo "🔌 SERVICE CONNECTIVITY"
@@ -150,7 +150,7 @@ echo -e "${BLUE}To start complete system:${NC}"
 echo "  ./quick-start.sh full"
 echo ""
 echo -e "${BLUE}To stop services:${NC}"
-echo "  docker-compose down"
+echo "  docker compose down"
 
 echo ""
 log_success "Quick test completed!"
